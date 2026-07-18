@@ -1,0 +1,41 @@
+telegram:
+  # Prefer tokenEnv so the token is not committed to config.
+  tokenEnv: TELEGRAM_BOT_TOKEN
+  token: ""
+  # Numeric private-chat Telegram user ID. Only this user/chat is authorized.
+  allowedUserId: 123456789
+
+google:
+  # May also be supplied by spreadsheetIdEnv or GOOGLE_SHEET_ID.
+  spreadsheetId: ""
+  spreadsheetIdEnv: GOOGLE_SHEET_ID
+  # Choose exactly one credential source:
+  credentialsFile: ""
+  credentialsJSONEnv: ""
+  serviceAccountEmailEnv: GOOGLE_SERVICE_ACCOUNT_EMAIL
+  privateKeyEnv: GOOGLE_PRIVATE_KEY
+  metadataSheet: _money_bot_meta
+  requestTimeout: 30s
+
+app:
+  timezone: Asia/Ho_Chi_Minh
+  updateTimeout: 30s
+  shutdownTimeout: 10s
+  maxInputRunes: 2000
+  maxOutputRunes: 3900
+
+ai:
+  # AI is always enabled for free-text transaction parsing.
+  # Local LM Studio/OpenAI-compatible server is the default.
+  provider: lmstudio
+  model: local-model
+  baseURL: http://localhost:1234/v1
+  apiKeyEnv: ""
+  # For OpenRouter instead, use:
+  # provider: openrouter
+  # apiKeyEnv: OPENROUTER_API_KEY
+  # model: z-ai/glm-4.5-air:free
+  # baseURL: https://openrouter.ai/api/v1
+  openrouterReferer: https://github.com/dtonair/money-bot
+  openrouterAppName: money-bot
+  requestTimeout: 20s

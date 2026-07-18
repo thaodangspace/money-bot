@@ -1,0 +1,27 @@
+# Local configuration and secrets
+config.yaml
+.env
+*.env
+.env.*
+!.env.example
+key.json
+credentials*.json
+service-account*.json
+*.pem
+*.key
+
+# Build artifacts
+/money-bot
+*.test
+coverage.out
+
+# Local state/logs/cache
+.local-state/
+.gocache/
+.gomodcache/
+*.log
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/

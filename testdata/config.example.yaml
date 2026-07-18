@@ -1,0 +1,25 @@
+telegram:
+  token: "123456:test-token"
+  tokenEnv: ""
+  allowedUserId: 123456789
+
+google:
+  spreadsheetId: "test-spreadsheet-id"
+  credentialsFile: "./service-account.json"
+  metadataSheet: _money_bot_meta
+  requestTimeout: 5s
+
+app:
+  timezone: Asia/Ho_Chi_Minh
+  updateTimeout: 5s
+  shutdownTimeout: 2s
+  maxInputRunes: 1000
+  maxOutputRunes: 3900
+
+ai:
+  provider: lmstudio
+  model: local-model
+  baseURL: http://localhost:1234/v1
+  openrouterReferer: https://github.com/dtonair/money-bot
+  openrouterAppName: money-bot
+  requestTimeout: 5s
