@@ -3,7 +3,7 @@ package telegram
 import (
 	"context"
 
-	"github.com/dtonair/money-bot/service"
+	"github.com/thaodangspace/money-bot/service"
 )
 
 type Messenger interface {

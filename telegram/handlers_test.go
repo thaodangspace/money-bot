@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dtonair/money-bot/authz"
-	"github.com/dtonair/money-bot/service"
+	"github.com/thaodangspace/money-bot/authz"
+	"github.com/thaodangspace/money-bot/service"
 )
 
 type fakeMessenger struct {

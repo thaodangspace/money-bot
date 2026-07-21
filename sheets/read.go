@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dtonair/money-bot/domain"
+	"github.com/thaodangspace/money-bot/domain"
 )
 
 var dateHeaderPattern = regexp.MustCompile(`^\d{2}/\d{2}/\d{4}$`)

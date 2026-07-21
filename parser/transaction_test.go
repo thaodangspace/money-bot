@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dtonair/money-bot/domain"
+	"github.com/thaodangspace/money-bot/domain"
 )
 
 func TestParseTransactionValid(t *testing.T) {

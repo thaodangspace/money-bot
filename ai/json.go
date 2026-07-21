@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/dtonair/money-bot/domain"
+	"github.com/thaodangspace/money-bot/domain"
 )
 
 const (

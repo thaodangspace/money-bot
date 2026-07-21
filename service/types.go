@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/dtonair/money-bot/domain"
+	"github.com/thaodangspace/money-bot/domain"
 )
 
 type AppendStatus string

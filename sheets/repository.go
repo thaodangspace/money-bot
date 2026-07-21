@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dtonair/money-bot/domain"
+	"github.com/thaodangspace/money-bot/domain"
 )
 
 func NewRepository(api API, spreadsheetID, metadataSheet string, location *time.Location) (*Repository, error) {

@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/dtonair/money-bot/authz"
+	"github.com/thaodangspace/money-bot/authz"
 )
 
 type Handler struct {

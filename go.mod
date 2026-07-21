@@ -1,4 +1,4 @@
-module github.com/dtonair/money-bot
+module github.com/thaodangspace/money-bot
 
 go 1.24.0
 

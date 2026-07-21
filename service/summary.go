@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/dtonair/money-bot/parser"
+	"github.com/thaodangspace/money-bot/parser"
 )
 
 func (s *Service) Summary(ctx context.Context, query string) (Result, error) {

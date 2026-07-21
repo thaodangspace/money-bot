@@ -13,13 +13,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dtonair/money-bot/ai"
-	"github.com/dtonair/money-bot/authz"
-	"github.com/dtonair/money-bot/config"
-	"github.com/dtonair/money-bot/domain"
-	"github.com/dtonair/money-bot/service"
-	"github.com/dtonair/money-bot/sheets"
-	"github.com/dtonair/money-bot/telegram"
+	"github.com/thaodangspace/money-bot/ai"
+	"github.com/thaodangspace/money-bot/authz"
+	"github.com/thaodangspace/money-bot/config"
+	"github.com/thaodangspace/money-bot/domain"
+	"github.com/thaodangspace/money-bot/service"
+	"github.com/thaodangspace/money-bot/sheets"
+	"github.com/thaodangspace/money-bot/telegram"
 )
 
 var (

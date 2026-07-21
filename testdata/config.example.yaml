@@ -20,6 +20,6 @@ ai:
   provider: lmstudio
   model: local-model
   baseURL: http://localhost:1234/v1
-  openrouterReferer: https://github.com/dtonair/money-bot
+  openrouterReferer: https://github.com/thaodangspace/money-bot
   openrouterAppName: money-bot
   requestTimeout: 5s

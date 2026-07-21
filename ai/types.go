@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/dtonair/money-bot/domain"
+	"github.com/thaodangspace/money-bot/domain"
 )
 
 var (

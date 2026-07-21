@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dtonair/money-bot/domain"
-	"github.com/dtonair/money-bot/parser"
+	"github.com/thaodangspace/money-bot/domain"
+	"github.com/thaodangspace/money-bot/parser"
 )
 
 type Service struct {

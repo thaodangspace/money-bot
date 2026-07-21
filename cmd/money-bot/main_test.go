@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dtonair/money-bot/config"
-	"github.com/dtonair/money-bot/sheets"
-	"github.com/dtonair/money-bot/telegram"
+	"github.com/thaodangspace/money-bot/config"
+	"github.com/thaodangspace/money-bot/sheets"
+	"github.com/thaodangspace/money-bot/telegram"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 

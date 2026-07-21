@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dtonair/money-bot/domain"
+	"github.com/thaodangspace/money-bot/domain"
 )
 
 func TestSummaryFormatsLedgerTotalsAndCommentary(t *testing.T) {

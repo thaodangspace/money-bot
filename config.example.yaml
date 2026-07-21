@@ -36,6 +36,6 @@ ai:
   # apiKeyEnv: OPENROUTER_API_KEY
   # model: z-ai/glm-4.5-air:free
   # baseURL: https://openrouter.ai/api/v1
-  openrouterReferer: https://github.com/dtonair/money-bot
+  openrouterReferer: https://github.com/thaodangspace/money-bot
   openrouterAppName: money-bot
   requestTimeout: 20s

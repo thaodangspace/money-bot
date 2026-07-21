@@ -28,7 +28,7 @@ const (
 	DefaultLMStudioModel     = "local-model"
 	DefaultOpenRouterBaseURL = "https://openrouter.ai/api/v1"
 	DefaultOpenRouterModel   = "z-ai/glm-4.5-air:free"
-	DefaultOpenRouterReferer = "https://github.com/dtonair/money-bot"
+	DefaultOpenRouterReferer = "https://github.com/thaodangspace/money-bot"
 	DefaultOpenRouterAppName = "money-bot"
 	DefaultGoogleSheetIDEnv  = "GOOGLE_SHEET_ID"
 	DefaultTelegramTokenEnv  = "TELEGRAM_BOT_TOKEN"

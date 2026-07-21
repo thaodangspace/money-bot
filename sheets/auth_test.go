@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dtonair/money-bot/config"
+	"github.com/thaodangspace/money-bot/config"
 )
 
 func TestCredentialJSONFromFile(t *testing.T) {

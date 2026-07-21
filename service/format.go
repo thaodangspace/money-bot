@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dtonair/money-bot/domain"
+	"github.com/thaodangspace/money-bot/domain"
 )
 
 func successText(tx domain.Transaction, usedAI bool) string {

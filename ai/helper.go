@@ -3,7 +3,7 @@ package ai
 import (
 	"context"
 
-	"github.com/dtonair/money-bot/domain"
+	"github.com/thaodangspace/money-bot/domain"
 )
 
 type Optional struct {

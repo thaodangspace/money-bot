@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dtonair/money-bot/domain"
+	"github.com/thaodangspace/money-bot/domain"
 )
 
 const defaultMaxResponseBytes int64 = 256 * 1024

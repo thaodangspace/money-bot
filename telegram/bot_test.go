@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dtonair/money-bot/authz"
-	"github.com/dtonair/money-bot/service"
+	"github.com/thaodangspace/money-bot/authz"
+	"github.com/thaodangspace/money-bot/service"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 

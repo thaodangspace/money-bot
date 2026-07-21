@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dtonair/money-bot/config"
+	"github.com/thaodangspace/money-bot/config"
 	"google.golang.org/api/option"
 )
 

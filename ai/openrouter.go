@@ -1,6 +1,6 @@
 package ai
 
-import "github.com/dtonair/money-bot/config"
+import "github.com/thaodangspace/money-bot/config"
 
 func NewFromConfig(cfg config.AIConfig) (*Client, error) {
 	provider := cfg.Provider
