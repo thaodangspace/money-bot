@@ -4,20 +4,23 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/thaodangspace/money-bot/authz"
 	"github.com/thaodangspace/money-bot/service"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 type recordingBot struct {
 	sends      []tgbotapi.MessageConfig
 	callbacks  []tgbotapi.CallbackConfig
 	updates    chan tgbotapi.Update
-	stopped    bool
+	updateCfg  tgbotapi.UpdateConfig
+	cancel     context.CancelFunc
+	updateErr  error
 	sendErrs   []error
 	requestErr error
 }
@@ -50,10 +53,30 @@ func (b *recordingBot) Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, err
 	return &tgbotapi.APIResponse{Ok: true}, nil
 }
 
-func (b *recordingBot) GetUpdatesChan(tgbotapi.UpdateConfig) tgbotapi.UpdatesChannel {
-	return b.updates
+func (b *recordingBot) GetUpdates(config tgbotapi.UpdateConfig) ([]tgbotapi.Update, error) {
+	b.updateCfg = config
+	if b.updateErr != nil {
+		if b.cancel != nil {
+			b.cancel()
+		}
+		return nil, b.updateErr
+	}
+	var updates []tgbotapi.Update
+	for {
+		select {
+		case update, ok := <-b.updates:
+			if !ok {
+				if b.cancel != nil {
+					b.cancel()
+				}
+				return updates, nil
+			}
+			updates = append(updates, update)
+		default:
+			return updates, nil
+		}
+	}
 }
-func (b *recordingBot) StopReceivingUpdates() { b.stopped = true }
 
 func TestMessengerAdapterMarkdownAndFallback(t *testing.T) {
 	bot := &recordingBot{}
@@ -100,9 +123,10 @@ func TestConvertUpdateMessageAndCallback(t *testing.T) {
 	}
 }
 
-func TestRunPollingSequentialAndStops(t *testing.T) {
+func TestRunPollingProcessesUpdatesSequentially(t *testing.T) {
 	updates := make(chan tgbotapi.Update, 2)
-	bot := &recordingBot{updates: updates}
+	ctx, cancel := context.WithCancel(context.Background())
+	bot := &recordingBot{updates: updates, cancel: cancel}
 	messenger := &fakeMessenger{}
 	svc := &fakeService{recordResult: service.Result{Text: "ok"}}
 	handler := NewHandler(messenger, svc, authz.New(42), nil)
@@ -111,12 +135,15 @@ func TestRunPollingSequentialAndStops(t *testing.T) {
 	updates <- tgbotapi.Update{UpdateID: 2, Message: &tgbotapi.Message{Chat: &tgbotapi.Chat{ID: 42}, From: &tgbotapi.User{ID: 42}, Text: "two"}}
 	close(updates)
 
-	err := RunPolling(context.Background(), bot, handler, slog.Default(), time.Second)
-	if err != nil {
+	err := RunPolling(ctx, bot, handler, slog.Default(), time.Second)
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunPolling() error = %v", err)
 	}
-	if !bot.stopped || svc.recordCalls != 2 || svc.recordID != 2 {
-		t.Fatalf("stopped=%v recordCalls=%d lastID=%d", bot.stopped, svc.recordCalls, svc.recordID)
+	if svc.recordCalls != 2 || svc.recordID != 2 {
+		t.Fatalf("recordCalls=%d lastID=%d", svc.recordCalls, svc.recordID)
+	}
+	if bot.updateCfg.Timeout != int(DefaultPollingTimeout/time.Second) {
+		t.Fatalf("polling timeout = %d", bot.updateCfg.Timeout)
 	}
 }
 
@@ -126,13 +153,50 @@ func TestRunPollingCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	err := RunPolling(ctx, bot, NewHandler(&fakeMessenger{}, &fakeService{}, authz.New(42), nil), slog.Default(), time.Second)
-	if err == nil || !bot.stopped {
-		t.Fatalf("RunPolling() err=%v stopped=%v", err, bot.stopped)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunPolling() err=%v", err)
+	}
+}
+
+func TestRunPollingDoesNotLogTokenBearingHTTPError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	bot := &recordingBot{
+		cancel:    cancel,
+		updateErr: errors.New(`Post "https://api.telegram.org/botsecret-token/getUpdates": timeout`),
+	}
+	var logs strings.Builder
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	err := RunPolling(ctx, bot, NewHandler(&fakeMessenger{}, &fakeService{}, authz.New(42), nil), logger, time.Second)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunPolling() err=%v", err)
+	}
+	if strings.Contains(logs.String(), "secret-token") {
+		t.Fatalf("log contains Telegram token: %s", logs.String())
+	}
+	if !strings.Contains(logs.String(), "timeout") {
+		t.Fatalf("log omits safe error details: %s", logs.String())
+	}
+}
+
+func TestRedactTelegramToken(t *testing.T) {
+	message := `Post "https://api.telegram.org/bot123456:secret/getUpdates": timeout`
+	redacted := redactTelegramToken(message)
+	if strings.Contains(redacted, "123456:secret") || !strings.Contains(redacted, "/bot[REDACTED]/getUpdates") {
+		t.Fatalf("redacted message = %q", redacted)
 	}
 }
 
 func TestNewTelegramHTTPClientHasTimeout(t *testing.T) {
-	if newTelegramHTTPClient().Timeout != DefaultHTTPTimeout {
-		t.Fatalf("timeout = %v", newTelegramHTTPClient().Timeout)
+	c := newTelegramHTTPClient()
+	if c.Timeout != DefaultHTTPTimeout {
+		t.Fatalf("timeout = %v", c.Timeout)
+	}
+	tr, ok := c.Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("transport is not *http.Transport")
+	}
+	if tr.DialContext == nil {
+		t.Fatal("DialContext is nil")
 	}
 }

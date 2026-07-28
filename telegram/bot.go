@@ -2,9 +2,12 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -13,8 +16,7 @@ import (
 type BotAPI interface {
 	Send(c tgbotapi.Chattable) (tgbotapi.Message, error)
 	Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error)
-	GetUpdatesChan(config tgbotapi.UpdateConfig) tgbotapi.UpdatesChannel
-	StopReceivingUpdates()
+	GetUpdates(config tgbotapi.UpdateConfig) ([]tgbotapi.Update, error)
 }
 
 type MessengerAdapter struct {
@@ -47,12 +49,33 @@ func NewRealBot(token string) (*tgbotapi.BotAPI, error) {
 	if token == "" {
 		return nil, fmt.Errorf("telegram token is required")
 	}
-	return tgbotapi.NewBotAPIWithClient(token, tgbotapi.APIEndpoint, newTelegramHTTPClient())
+	bot, err := tgbotapi.NewBotAPIWithClient(token, tgbotapi.APIEndpoint, newTelegramHTTPClient())
+	if err != nil {
+		return nil, fmt.Errorf("initialize telegram bot: %s", redactTelegramToken(err.Error()))
+	}
+	return bot, nil
 }
 
-const DefaultHTTPTimeout = 60 * time.Second
+const (
+	DefaultHTTPTimeout    = 60 * time.Second
+	DefaultPollingTimeout = 30 * time.Second
+	defaultRetryDelay     = 3 * time.Second
+)
 
-func newTelegramHTTPClient() *http.Client { return &http.Client{Timeout: DefaultHTTPTimeout} }
+func newTelegramHTTPClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = func(ctx context.Context, _ string, addr string) (net.Conn, error) {
+		return dialer.DialContext(ctx, "tcp4", addr)
+	}
+	return &http.Client{
+		Timeout:   DefaultHTTPTimeout,
+		Transport: transport,
+	}
+}
 
 func RunPolling(ctx context.Context, bot BotAPI, handler *Handler, logger *slog.Logger, updateTimeout time.Duration) error {
 	if logger == nil {
@@ -61,16 +84,40 @@ func RunPolling(ctx context.Context, bot BotAPI, handler *Handler, logger *slog.
 	if updateTimeout <= 0 {
 		updateTimeout = 30 * time.Second
 	}
-	updates := bot.GetUpdatesChan(tgbotapi.NewUpdate(0))
-	defer bot.StopReceivingUpdates()
+	config := tgbotapi.NewUpdate(0)
+	config.Timeout = int(DefaultPollingTimeout / time.Second)
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case update, ok := <-updates:
-			if !ok {
-				return nil
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		updates, err := bot.GetUpdates(config)
+		if err != nil {
+			retryDelay := defaultRetryDelay
+			var telegramErr tgbotapi.Error
+			if errors.As(err, &telegramErr) && telegramErr.RetryAfter > 0 {
+				retryDelay = time.Duration(telegramErr.RetryAfter) * time.Second
+				logger.Warn("get telegram updates failed", "error", redactTelegramToken(err.Error()), "telegram_error_code", telegramErr.Code, "retry_after", retryDelay)
+			} else {
+				logger.Warn("get telegram updates failed", "error", redactTelegramToken(err.Error()), "retry_after", retryDelay)
 			}
+			timer := time.NewTimer(retryDelay)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return ctx.Err()
+			case <-timer.C:
+			}
+			continue
+		}
+
+		for _, update := range updates {
+			if update.UpdateID < config.Offset {
+				continue
+			}
+			config.Offset = update.UpdateID + 1
 			converted, ok := convertUpdate(update)
 			if !ok {
 				continue
@@ -79,10 +126,29 @@ func RunPolling(ctx context.Context, bot BotAPI, handler *Handler, logger *slog.
 			err := handler.HandleUpdate(updateCtx, converted)
 			cancel()
 			if err != nil {
-				logger.Warn("handle telegram update", "update_id", converted.ID, "error", err)
+				logger.Warn("handle telegram update", "update_id", converted.ID, "error", redactTelegramToken(err.Error()))
 			}
 		}
 	}
+}
+
+func redactTelegramToken(message string) string {
+	const marker = "/bot"
+	for searchFrom := 0; searchFrom < len(message); {
+		markerOffset := strings.Index(message[searchFrom:], marker)
+		if markerOffset < 0 {
+			break
+		}
+		tokenStart := searchFrom + markerOffset + len(marker)
+		tokenEndOffset := strings.IndexByte(message[tokenStart:], '/')
+		if tokenEndOffset < 0 {
+			break
+		}
+		tokenEnd := tokenStart + tokenEndOffset
+		message = message[:tokenStart] + "[REDACTED]" + message[tokenEnd:]
+		searchFrom = tokenStart + len("[REDACTED]")
+	}
+	return message
 }
 
 func convertUpdate(update tgbotapi.Update) (Update, bool) {

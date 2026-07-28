@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/thaodangspace/money-bot/config"
 	"github.com/thaodangspace/money-bot/sheets"
 	"github.com/thaodangspace/money-bot/telegram"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func TestRunDryRunValidatesConfigWithoutLoggingSecrets(t *testing.T) {
@@ -190,8 +190,7 @@ func (fakeBot) Send(tgbotapi.Chattable) (tgbotapi.Message, error) { return tgbot
 func (fakeBot) Request(tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
 	return &tgbotapi.APIResponse{Ok: true}, nil
 }
-func (fakeBot) GetUpdatesChan(tgbotapi.UpdateConfig) tgbotapi.UpdatesChannel { return nil }
-func (fakeBot) StopReceivingUpdates()                                        {}
+func (fakeBot) GetUpdates(tgbotapi.UpdateConfig) ([]tgbotapi.Update, error) { return nil, nil }
 
 func writeMainConfig(t *testing.T, path, content string) {
 	t.Helper()
