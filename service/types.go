@@ -4,29 +4,44 @@ import (
 	"context"
 	"time"
 
+	"github.com/thaodangspace/money-bot/ai"
 	"github.com/thaodangspace/money-bot/domain"
 )
 
-type AppendStatus string
+type AppendStatus = domain.AppendStatus
 
 const (
-	AppendWritten   AppendStatus = "written"
-	AppendDuplicate AppendStatus = "duplicate"
+	AppendWritten   = domain.AppendWritten
+	AppendDuplicate = domain.AppendDuplicate
 )
 
-type AppendResult struct {
-	Status      AppendStatus
-	TargetSheet string
-}
+type AppendResult = domain.AppendBatchResult
+type AppendBatchResult = domain.AppendBatchResult
 
+// Ledger is intentionally small so the service can support both the batch API
+// and older single-transaction fakes during migration.
 type Ledger interface {
-	AppendTransaction(ctx context.Context, tx domain.Transaction) (AppendResult, error)
 	MonthlySummary(ctx context.Context, year int, month time.Month) (domain.MonthlySummary, error)
 }
 
 type AIParser interface {
 	ParseTransaction(ctx context.Context, message string) (domain.Transaction, error)
+}
+
+type imageBatchParser interface {
+	ParseImageTransactions(ctx context.Context, caption, mimeType string, image []byte) (ai.ImageTransactionExtraction, error)
+}
+
+type imageSingleParser interface {
 	ParseImageTransaction(ctx context.Context, caption, mimeType string, image []byte) (domain.Transaction, error)
+}
+
+type batchLedger interface {
+	AppendTransactions(ctx context.Context, updateID int, transactions []domain.Transaction) (AppendBatchResult, error)
+}
+
+type singleLedger interface {
+	AppendTransaction(ctx context.Context, tx domain.Transaction) (AppendResult, error)
 }
 
 type ImageInput struct {

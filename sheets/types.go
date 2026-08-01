@@ -63,20 +63,15 @@ type AppendCellsRequest struct {
 	Values     [][]string
 }
 
-type AppendStatus string
+type AppendStatus = domain.AppendStatus
 
 const (
-	AppendWritten   AppendStatus = "written"
-	AppendDuplicate AppendStatus = "duplicate"
+	AppendWritten   = domain.AppendWritten
+	AppendDuplicate = domain.AppendDuplicate
 )
 
-type AppendResult struct {
-	Status      AppendStatus
-	TargetSheet string
-}
-
-func (r AppendResult) Written() bool   { return r.Status == AppendWritten }
-func (r AppendResult) Duplicate() bool { return r.Status == AppendDuplicate }
+type AppendBatchResult = domain.AppendBatchResult
+type AppendResult = domain.AppendBatchResult
 
 type Repository struct {
 	api           API
@@ -88,6 +83,6 @@ type Repository struct {
 }
 
 type Ledger interface {
-	AppendTransaction(ctx context.Context, tx domain.Transaction) (AppendResult, error)
+	AppendTransactions(ctx context.Context, updateID int, transactions []domain.Transaction) (AppendBatchResult, error)
 	MonthlySummary(ctx context.Context, year int, month time.Month) (domain.MonthlySummary, error)
 }

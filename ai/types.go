@@ -16,8 +16,24 @@ type TransactionParser interface {
 	ParseTransaction(ctx context.Context, message string) (domain.Transaction, error)
 }
 
+const MaxImageTransactions = 20
+
+type ImageExtractionKind string
+
+const (
+	ImageExtractionSingleReceipt  ImageExtractionKind = "single_receipt"
+	ImageExtractionSingleTransfer ImageExtractionKind = "single_transfer"
+	ImageExtractionList           ImageExtractionKind = "transaction_list"
+)
+
+type ImageTransactionExtraction struct {
+	Kind         ImageExtractionKind
+	Transactions []domain.Transaction
+	Detected     int
+}
+
 type ImageTransactionParser interface {
-	ParseImageTransaction(ctx context.Context, caption, mimeType string, image []byte) (domain.Transaction, error)
+	ParseImageTransactions(ctx context.Context, caption, mimeType string, image []byte) (ImageTransactionExtraction, error)
 }
 
 type Commentator interface {

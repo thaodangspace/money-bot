@@ -26,11 +26,46 @@ func duplicateText(tx domain.Transaction) string {
 }
 
 func imagePreviewText(tx domain.Transaction) string {
-	kind := "chi tiêu"
-	if tx.Type == domain.TransactionIncome {
-		kind = "thu nhập"
+	return imagePreviewTextBatch([]domain.Transaction{tx})
+}
+
+func imagePreviewTextBatch(transactions []domain.Transaction) string {
+	if len(transactions) == 1 {
+		tx := transactions[0]
+		kind := "chi tiêu"
+		if tx.Type == domain.TransactionIncome {
+			kind = "thu nhập"
+		}
+		return fmt.Sprintf("🖼️ Mình đọc được %s: %s - %s ₫.\nVui lòng kiểm tra trước khi lưu.", kind, boundText(tx.Content(), 300), formatDong(tx.Amount))
 	}
-	return fmt.Sprintf("🖼️ Mình đọc được %s: %s - %s ₫.\nVui lòng kiểm tra trước khi lưu.", kind, boundText(tx.Content(), 300), formatDong(tx.Amount))
+	lines := []string{fmt.Sprintf("🖼️ Tìm thấy %d giao dịch:", len(transactions)), ""}
+	var income, expense int64
+	for i, tx := range transactions {
+		kind := "Chi tiêu"
+		if tx.Type == domain.TransactionIncome {
+			kind = "Thu nhập"
+			income += tx.Amount
+		} else {
+			expense += tx.Amount
+		}
+		lines = append(lines, fmt.Sprintf("%d. %s · %s · %s — %s ₫", i+1, tx.Date.Format("02/01/2006"), kind, boundText(tx.Content(), 220), formatDong(tx.Amount)))
+	}
+	lines = append(lines, "", "Tổng thu nhập: "+formatDong(income)+" ₫", "Tổng chi tiêu: "+formatDong(expense)+" ₫", "⚠️ Bấm xác nhận để lưu tất cả giao dịch trong danh sách.")
+	return strings.Join(lines, "\n")
+}
+
+func successBatchText(transactions []domain.Transaction) string {
+	if len(transactions) == 1 {
+		return successText(transactions[0], false)
+	}
+	return fmt.Sprintf("✅ Đã lưu %d giao dịch vào Google Sheet.", len(transactions))
+}
+
+func duplicateBatchText(transactions []domain.Transaction) string {
+	if len(transactions) == 1 {
+		return duplicateText(transactions[0])
+	}
+	return fmt.Sprintf("ℹ️ %d giao dịch này đã được ghi trước đó.", len(transactions))
 }
 
 func imageConfirmationUnavailableText() string {
