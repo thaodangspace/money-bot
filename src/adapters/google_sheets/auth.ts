@@ -1,3 +1,5 @@
+import { elapsedMs, errorFields, type Logger, nullLogger } from '../../shared/logger.ts';
+
 export interface ServiceAccountCredentials {
   client_email: string;
   private_key: string;
@@ -13,13 +15,19 @@ export class ServiceAccountTokenProvider {
   #credentials: ServiceAccountCredentials;
   #fetcher: typeof fetch;
   #cached?: CachedToken;
+  #logger: Logger;
 
-  constructor(credentials: ServiceAccountCredentials, fetcher: typeof fetch = fetch) {
+  constructor(
+    credentials: ServiceAccountCredentials,
+    fetcher: typeof fetch = fetch,
+    logger: Logger = nullLogger,
+  ) {
     if (!credentials.client_email || !credentials.private_key) {
       throw new Error('service-account credentials are incomplete');
     }
     this.#credentials = credentials;
     this.#fetcher = fetcher;
+    this.#logger = logger;
   }
 
   async accessToken(signal: AbortSignal): Promise<string> {
@@ -35,24 +43,64 @@ export class ServiceAccountTokenProvider {
       exp: issuedAt + 3_600,
     }, this.#credentials.private_key);
     const tokenURL = this.#credentials.token_uri ?? 'https://oauth2.googleapis.com/token';
-    const response = await this.#fetcher(tokenURL, {
-      method: 'POST',
-      signal,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion,
-      }),
+    const started = performance.now();
+    const logger = this.#logger.forSignal(signal);
+    logger.debug('external.call.start', {
+      from: 'ServiceAccountTokenProvider',
+      to: 'Google OAuth token endpoint',
     });
-    if (!response.ok) throw new Error(`Google OAuth HTTP status ${response.status}`);
+    let response: Response;
+    try {
+      response = await this.#fetcher(tokenURL, {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+          assertion,
+        }),
+      });
+    } catch (error) {
+      logger.error('external.call.failed', {
+        from: 'ServiceAccountTokenProvider',
+        to: 'Google OAuth token endpoint',
+        durationMs: elapsedMs(started),
+        ...errorFields(error),
+      });
+      throw error;
+    }
+    if (!response.ok) {
+      const error = new Error(`Google OAuth HTTP status ${response.status}`);
+      logger.error('external.call.failed', {
+        from: 'ServiceAccountTokenProvider',
+        to: 'Google OAuth token endpoint',
+        durationMs: elapsedMs(started),
+        status: response.status,
+        ...errorFields(error),
+      });
+      throw error;
+    }
     const data = await response.json() as { access_token?: unknown; expires_in?: unknown };
     if (typeof data.access_token !== 'string' || typeof data.expires_in !== 'number') {
-      throw new Error('Google OAuth response was invalid');
+      const error = new Error('Google OAuth response was invalid');
+      logger.error('external.call.failed', {
+        from: 'ServiceAccountTokenProvider',
+        to: 'Google OAuth token endpoint',
+        durationMs: elapsedMs(started),
+        ...errorFields(error),
+      });
+      throw error;
     }
     this.#cached = {
       accessToken: data.access_token,
       expiresAt: Date.now() + data.expires_in * 1_000,
     };
+    logger.debug('external.call.success', {
+      from: 'ServiceAccountTokenProvider',
+      to: 'Google OAuth token endpoint',
+      durationMs: elapsedMs(started),
+      status: response.status,
+    });
     return data.access_token;
   }
 }

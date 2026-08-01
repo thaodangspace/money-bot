@@ -15,6 +15,7 @@ import {
   type SheetsAPI,
 } from './types.ts';
 import { GoogleHTTPError } from './client.ts';
+import { elapsedMs, errorFields, type Logger, nullLogger } from '../../shared/logger.ts';
 
 export interface SheetsRepositoryOptions {
   api: SheetsAPI;
@@ -23,6 +24,7 @@ export interface SheetsRepositoryOptions {
   timeZone?: string;
   clock?: () => Date;
   maxRetries?: number;
+  logger?: Logger;
 }
 
 export class SheetsRepository {
@@ -32,6 +34,7 @@ export class SheetsRepository {
   readonly #timeZone: string;
   readonly #clock: () => Date;
   readonly #maxRetries: number;
+  readonly #logger: Logger;
 
   constructor(options: SheetsRepositoryOptions) {
     if (!options.spreadsheetId.trim()) throw new Error('spreadsheet ID is required');
@@ -41,6 +44,7 @@ export class SheetsRepository {
     this.#timeZone = options.timeZone ?? 'Asia/Ho_Chi_Minh';
     this.#clock = options.clock ?? (() => new Date());
     this.#maxRetries = options.maxRetries ?? 1;
+    this.#logger = options.logger ?? nullLogger;
   }
 
   async appendTransactions(
@@ -48,6 +52,14 @@ export class SheetsRepository {
     updateId: number,
     transactions: Transaction[],
   ): Promise<AppendBatchResult> {
+    const logger = this.#logger.forSignal(signal);
+    const started = performance.now();
+    logger.info('ledger.append.start', {
+      from: 'MoneyService',
+      to: 'SheetsRepository.appendTransactions',
+      updateId,
+      transactionCount: transactions.length,
+    });
     if (updateId <= 0) throw new Error('source update ID is required');
     if (transactions.length === 0) throw new Error('at least one transaction is required');
     for (const transaction of transactions) validateTransaction(transaction);
@@ -61,6 +73,13 @@ export class SheetsRepository {
 
     await this.#ensureSheets(signal, targetSheets);
     if (await this.#hasUpdateID(signal, updateId)) {
+      logger.info('ledger.append.duplicate', {
+        from: 'SheetsRepository.appendTransactions',
+        to: 'Google Sheets',
+        durationMs: elapsedMs(started),
+        updateId,
+        targetSheets,
+      });
       return { status: 'duplicate', targetSheets };
     }
     const ids = await this.#sheetIDs(signal);
@@ -102,17 +121,51 @@ export class SheetsRepository {
     for (let attempt = 0; attempt <= this.#maxRetries; attempt++) {
       try {
         await this.#api.batchUpdate(signal, this.#spreadsheetId, request);
+        logger.info('ledger.append.success', {
+          from: 'SheetsRepository.appendTransactions',
+          to: 'Google Sheets',
+          durationMs: elapsedMs(started),
+          updateId,
+          targetSheets,
+          attempt: attempt + 1,
+        });
         return { status: 'written', targetSheets };
       } catch (error) {
         lastError = error;
         if (!isAmbiguous(error) || attempt === this.#maxRetries) break;
-        if (await this.#hasUpdateID(signal, updateId)) return { status: 'written', targetSheets };
+        if (await this.#hasUpdateID(signal, updateId)) {
+          logger.info('ledger.append.success_after_retry', {
+            from: 'SheetsRepository.appendTransactions',
+            to: 'Google Sheets',
+            durationMs: elapsedMs(started),
+            updateId,
+            targetSheets,
+            attempt: attempt + 1,
+          });
+          return { status: 'written', targetSheets };
+        }
       }
     }
-    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    const error = lastError instanceof Error ? lastError : new Error(String(lastError));
+    logger.error('ledger.append.failed', {
+      from: 'SheetsRepository.appendTransactions',
+      to: 'Google Sheets',
+      durationMs: elapsedMs(started),
+      updateId,
+      ...errorFields(error),
+    });
+    throw error;
   }
 
   async monthlySummary(signal: AbortSignal, year: number, month: number): Promise<MonthlySummary> {
+    const logger = this.#logger.forSignal(signal);
+    const started = performance.now();
+    logger.info('ledger.summary.start', {
+      from: 'MoneyService',
+      to: 'SheetsRepository.monthlySummary',
+      year,
+      month,
+    });
     let totalExpenses = 0;
     let totalIncome = 0;
     let entryCount = 0;
@@ -142,6 +195,14 @@ export class SheetsRepository {
     } catch (error) {
       if (!(error instanceof SheetNotFoundError)) throw error;
     }
+    logger.info('ledger.summary.success', {
+      from: 'SheetsRepository.monthlySummary',
+      to: 'MoneyService',
+      durationMs: elapsedMs(started),
+      year,
+      month,
+      entryCount,
+    });
     return newMonthlySummary(year, month, totalExpenses, totalIncome, entryCount);
   }
 

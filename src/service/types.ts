@@ -1,6 +1,7 @@
 import type { MonthlySummary } from '../domain/summary.ts';
 import type { Transaction } from '../domain/transaction.ts';
 import type { ImageTransactionExtraction } from '../adapters/ai/image_types.ts';
+import type { Logger } from '../shared/logger.ts';
 
 export type AppendStatus = 'written' | 'duplicate';
 export interface AppendBatchResult {
@@ -53,4 +54,5 @@ export interface ServiceOptions {
   ledger: Ledger;
   ai: AIParser;
   comments?: Commentator;
+  logger?: Logger;
 }

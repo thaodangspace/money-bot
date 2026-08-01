@@ -3,6 +3,7 @@ import type { AIParser, Commentator } from '../../service/types.ts';
 import { parseImageTransactionsJSON, parseTransactionJSON } from './validation.ts';
 import { IMAGE_TRANSACTIONS_SYSTEM_PROMPT, TRANSACTION_SYSTEM_PROMPT } from './prompts.ts';
 import type { ImageTransactionExtraction } from './image_types.ts';
+import { elapsedMs, errorFields, type Logger, nullLogger } from '../../shared/logger.ts';
 
 const DEFAULT_MAX_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -24,6 +25,7 @@ export interface AIClientOptions {
   maxResponseBytes?: number;
   maxImageBytes?: number;
   fetcher?: typeof fetch;
+  logger?: Logger;
 }
 
 interface ChatMessage {
@@ -49,6 +51,7 @@ export class AIClient implements AIParser, Commentator {
   readonly #maxResponseBytes: number;
   readonly #maxImageBytes?: number;
   readonly #fetcher: typeof fetch;
+  readonly #logger: Logger;
 
   constructor(options: AIClientOptions) {
     if (!options.baseURL.trim()) throw new Error('AI base URL is required');
@@ -68,6 +71,7 @@ export class AIClient implements AIParser, Commentator {
       : DEFAULT_MAX_RESPONSE_BYTES;
     this.#maxImageBytes = options.maxImageBytes;
     this.#fetcher = options.fetcher ?? fetch;
+    this.#logger = options.logger ?? nullLogger;
   }
 
   static openRouter(options: AIClientOptions): AIClient {
@@ -198,6 +202,14 @@ export class AIClient implements AIParser, Commentator {
     temperature: number,
     model: string,
   ): Promise<string> {
+    const logger = this.#logger.forSignal(signal);
+    const started = performance.now();
+    logger.debug('external.call.start', {
+      from: 'AIClient',
+      to: `${this.#provider} chat completions`,
+      provider: this.#provider,
+      model,
+    });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
     const combined = AbortSignal.any([signal, controller.signal]);
@@ -218,12 +230,27 @@ export class AIClient implements AIParser, Commentator {
       }
       const content = chatContent(parsed);
       if (!content) throw new Error('AI response did not contain content');
+      logger.info('external.call.success', {
+        from: 'AIClient',
+        to: `${this.#provider} chat completions`,
+        provider: this.#provider,
+        model,
+        durationMs: elapsedMs(started),
+      });
       return content;
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        throw new Error(`${this.#provider} request timed out or was cancelled`);
-      }
-      throw error;
+      const normalized = error instanceof DOMException && error.name === 'AbortError'
+        ? new Error(`${this.#provider} request timed out or was cancelled`, { cause: error })
+        : error;
+      logger.error('external.call.failed', {
+        from: 'AIClient',
+        to: `${this.#provider} chat completions`,
+        provider: this.#provider,
+        model,
+        durationMs: elapsedMs(started),
+        ...errorFields(normalized),
+      });
+      throw normalized;
     } finally {
       clearTimeout(timeout);
     }
