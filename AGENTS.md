@@ -16,14 +16,14 @@ Production tasks are least-privilege and are defined in `deno.json`. Do not use 
 
 ## Project Layout
 
-- `src/main.ts`: CLI entrypoint, configuration, dependency composition, signals, and polling startup.
+- `src/main.ts`: CLI entrypoint, configuration, dependency composition, signals, and webhook startup.
 - `src/config`: strict YAML-compatible configuration loading, defaults, durations, environment resolution, and credential-source selection.
 - `src/domain`: transport-neutral transaction, date, and monthly-summary types.
 - `src/parser`: deterministic Vietnamese amount, transaction, intent, and summary-period parsing.
 - `src/service`: business orchestration, Vietnamese formatting, and bounded image confirmation state.
 - `src/adapters/ai`: OpenAI-compatible text/vision client and strict response validation.
 - `src/adapters/google_sheets`: service-account JWT auth, Sheets REST client, idempotent repository, flat writes, and legacy reads.
-- `src/adapters/telegram`: Bot API client, polling, handlers, authorization, Markdown fallback, chunking, and image acquisition.
+- `src/adapters/telegram`: Bot API client, webhook adapter, handlers, authorization, Markdown fallback, chunking, and image acquisition.
 
 ## Spreadsheet Invariants
 
@@ -48,6 +48,6 @@ Production tasks are least-privilege and are defined in `deno.json`. Do not use 
 
 ## Testing Notes
 
-Keep core behavior behind interfaces/fakes. Default tests must not require live Telegram, Google, OpenRouter, or LM Studio credentials. Add tests when changing parsing, multimodal requests, pending-image state, row schema, metadata/idempotency, legacy summaries, authorization/routing, or polling.
+Keep core behavior behind interfaces/fakes. Default tests must not require live Telegram, Google, OpenRouter, or LM Studio credentials. Add tests when changing parsing, multimodal requests, pending-image state, row schema, metadata/idempotency, legacy summaries, authorization/routing, or webhook delivery.
 
 Google live integration is intentionally opt-in and must use a dedicated test spreadsheet and explicit write confirmation.

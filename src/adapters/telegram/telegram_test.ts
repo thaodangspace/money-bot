@@ -1,5 +1,4 @@
 import { TelegramAuthorizer } from './authz.ts';
-import { TelegramClient } from './client.ts';
 import { chunkText, markdownV2 } from './format.ts';
 import { detectImageMime, TelegramImageFetcher } from './image_fetcher.ts';
 
@@ -20,21 +19,6 @@ Deno.test('Telegram Markdown escaping and rune chunking are safe', () => {
   if (chunks.length !== 3 || chunks[0] !== '😀😀' || chunks[2] !== '😀') {
     throw new Error(JSON.stringify(chunks));
   }
-});
-
-Deno.test('Telegram polling preserves unsupported update IDs for offset advancement', async () => {
-  const client = new TelegramClient({
-    token: '123:test',
-    apiBaseURL: 'https://example.invalid',
-    fetcher: () =>
-      Promise.resolve(
-        new Response(JSON.stringify({ ok: true, result: [{ update_id: 17, edited_message: {} }] })),
-      ),
-  });
-  const updates = await client.getUpdates(new AbortController().signal, 0);
-  if (
-    updates.length !== 1 || updates[0]?.id !== 17 || updates[0]?.message || updates[0]?.callback
-  ) throw new Error(JSON.stringify(updates));
 });
 
 Deno.test('image MIME detection and streaming size limits are enforced', async () => {

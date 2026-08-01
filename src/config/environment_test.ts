@@ -4,6 +4,7 @@ Deno.test('environment-only configuration works without config.yaml', () => {
   const values: Record<string, string> = {
     TELEGRAM_BOT_TOKEN: '123:test-token',
     TELEGRAM_ALLOWED_USER_ID: '123456789',
+    TELEGRAM_WEBHOOK_SECRET: 'webhook-secret',
     GOOGLE_SHEET_ID: 'spreadsheet-id',
     GOOGLE_SERVICE_ACCOUNT_EMAIL: 'bot@example.iam.gserviceaccount.com',
     GOOGLE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',

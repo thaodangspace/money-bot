@@ -149,7 +149,8 @@ export class TelegramHandler {
     const cancelled = callbackToken(callback.data, IMAGE_CANCEL_PREFIX);
     if (cancelled) {
       await this.#messenger.answerCallback(signal, callback.id, 'Đã hủy');
-      return this.#sendChunks(signal, callback.chatId, this.#service.cancelImage(cancelled).text);
+      const result = await this.#service.cancelImage(signal, cancelled);
+      return this.#sendChunks(signal, callback.chatId, result.text);
     }
     if (callback.data === CALLBACK_SUMMARY) {
       await this.#messenger.answerCallback(signal, callback.id, 'OK');

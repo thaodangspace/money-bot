@@ -1,22 +1,25 @@
 telegram:
   # Prefer tokenEnv so the token is not committed to config.
   tokenEnv: TELEGRAM_BOT_TOKEN
-  token: ""
+  token: ''
   # Numeric private-chat Telegram user ID. Only this user/chat is authorized.
   allowedUserId: 123456789
   # Maximum source-image download size (5 MiB). JPEG, PNG, and WebP only.
   maxImageBytes: 5242880
+  webhookPath: /telegram/webhook
+  webhookSecretEnv: TELEGRAM_WEBHOOK_SECRET
 
 google:
   # May also be supplied by spreadsheetIdEnv or GOOGLE_SHEET_ID.
-  spreadsheetId: ""
+  spreadsheetId: ''
   spreadsheetIdEnv: GOOGLE_SHEET_ID
   # Choose exactly one credential source:
-  credentialsFile: ""
-  credentialsJSONEnv: ""
+  credentialsFile: ''
+  credentialsJSONEnv: ''
   serviceAccountEmailEnv: GOOGLE_SERVICE_ACCOUNT_EMAIL
   privateKeyEnv: GOOGLE_PRIVATE_KEY
   metadataSheet: _money_bot_meta
+  pendingSheet: _money_bot_pending
   requestTimeout: 30s
 
 app:
@@ -34,7 +37,7 @@ ai:
   # Optional vision-capable model for receipt/transfer images; defaults to model.
   imageModel: local-model
   baseURL: http://localhost:1234/v1
-  apiKeyEnv: ""
+  apiKeyEnv: ''
   # For OpenRouter instead, use:
   # provider: openrouter
   # apiKeyEnv: OPENROUTER_API_KEY

@@ -6,75 +6,86 @@ export interface PendingImage {
   updateId: number;
   expiresAt: number;
 }
-interface PendingEntry extends PendingImage {
+export interface PendingImageStore {
+  add(
+    signal: AbortSignal,
+    transactions: Transaction[],
+    updateId: number,
+  ): Promise<string | undefined>;
+  getConfirmable(signal: AbortSignal, token: string): Promise<PendingImage | undefined>;
+  complete(signal: AbortSignal, token: string): Promise<void>;
+  cancel(signal: AbortSignal, token: string): Promise<boolean>;
+  countActive(signal: AbortSignal): Promise<number>;
+  release?(token: string): void;
+}
+interface Entry extends PendingImage {
   confirming: boolean;
 }
 
-export class ImagePendingStore {
-  readonly #entries = new Map<string, PendingEntry>();
-  readonly #clock: Clock;
-  readonly #ttlMs: number;
-  readonly #maxEntries: number;
-  readonly #token: (byteLength: number) => string;
-
+/** Test-only process-local implementation. Production must use the Sheets implementation. */
+export class InMemoryPendingImageStore implements PendingImageStore {
+  readonly #entries = new Map<string, Entry>();
   constructor(
-    clock: Clock,
-    options: { ttlMs?: number; maxEntries?: number; token?: (byteLength: number) => string } = {},
-  ) {
-    this.#clock = clock;
-    this.#ttlMs = options.ttlMs ?? 10 * 60 * 1_000;
-    this.#maxEntries = options.maxEntries ?? 16;
-    this.#token = options.token ?? randomToken;
-  }
-
-  add(transactions: Transaction[], updateId: number): string | undefined {
-    this.evictExpired();
-    if (this.#entries.size >= this.#maxEntries) return undefined;
+    readonly clock: Clock,
+    readonly options: { ttlMs?: number; maxEntries?: number; token?: (bytes: number) => string } =
+      {},
+  ) {}
+  add(
+    _signal: AbortSignal,
+    transactions: Transaction[],
+    updateId: number,
+  ): Promise<string | undefined> {
+    this.evict();
+    const max = this.options.maxEntries ?? 16;
+    if (this.#entries.size >= max) return Promise.resolve(undefined);
     let token = '';
-    for (let attempts = 0; attempts < 4; attempts++) {
-      token = this.#token(18);
+    for (let i = 0; i < 4; i++) {
+      token = (this.options.token ?? randomToken)(18);
       if (!this.#entries.has(token)) break;
     }
-    if (!token || this.#entries.has(token)) return undefined;
+    if (!token || this.#entries.has(token)) return Promise.resolve(undefined);
     this.#entries.set(token, {
       transactions: [...transactions],
       updateId,
-      expiresAt: this.#clock.now().getTime() + this.#ttlMs,
+      expiresAt: this.clock.now().getTime() + (this.options.ttlMs ?? 600_000),
       confirming: false,
     });
-    return token;
+    return Promise.resolve(token);
   }
-
-  beginConfirmation(token: string): PendingImage | undefined {
-    this.evictExpired();
+  getConfirmable(_signal: AbortSignal, token: string): Promise<PendingImage | undefined> {
+    this.evict();
     const entry = this.#entries.get(token);
-    if (!entry || entry.confirming) return undefined;
+    if (!entry || entry.confirming) return Promise.resolve(undefined);
     entry.confirming = true;
-    return {
+    return Promise.resolve({
       transactions: [...entry.transactions],
       updateId: entry.updateId,
       expiresAt: entry.expiresAt,
-    };
+    });
   }
-  releaseConfirmation(token: string): void {
+  complete(_signal: AbortSignal, token: string): Promise<void> {
+    this.#entries.delete(token);
+    return Promise.resolve();
+  }
+  cancel(_signal: AbortSignal, token: string): Promise<boolean> {
+    this.evict();
+    return Promise.resolve(this.#entries.delete(token));
+  }
+  countActive(): Promise<number> {
+    this.evict();
+    return Promise.resolve(this.#entries.size);
+  }
+  release(token: string): void {
     const entry = this.#entries.get(token);
     if (entry) entry.confirming = false;
   }
-  complete(token: string): void {
-    this.#entries.delete(token);
-  }
-  cancel(token: string): boolean {
-    this.evictExpired();
-    return this.#entries.delete(token);
-  }
-  get size(): number {
-    this.evictExpired();
-    return this.#entries.size;
-  }
-  private evictExpired(): void {
-    const now = this.#clock.now().getTime();
+  private evict(): void {
+    const now = this.clock.now().getTime();
     for (const [token, entry] of this.#entries) {
       if (entry.expiresAt <= now) this.#entries.delete(token);
     }
   }
 }
+
+/** Backwards-compatible name for tests and fakes; never instantiate this in runtime composition. */
+export class ImagePendingStore extends InMemoryPendingImageStore {}

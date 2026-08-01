@@ -2,6 +2,8 @@ import { parseDuration } from './duration.ts';
 
 export const DEFAULTS = {
   metadataSheet: '_money_bot_meta',
+  pendingSheet: '_money_bot_pending',
+  webhookPath: '/telegram/webhook',
   timezone: 'Asia/Ho_Chi_Minh',
   updateTimeoutMs: 30_000,
   shutdownTimeoutMs: 10_000,
@@ -43,10 +45,13 @@ export interface RuntimeConfig {
     token: string;
     allowedUserId: number;
     maxImageBytes: number;
+    webhookPath: string;
+    webhookSecret: string;
   };
   google: {
     spreadsheetId: string;
     metadataSheet: string;
+    pendingSheet: string;
     requestTimeoutMs: number;
     credentialSource: CredentialSource;
   };
@@ -92,6 +97,8 @@ export function configFromEnvironment(environment: Environment = systemEnvironme
       tokenEnv: 'TELEGRAM_BOT_TOKEN',
       allowedUserId: environment.get('TELEGRAM_ALLOWED_USER_ID') ?? '',
       maxImageBytes: environment.get('TELEGRAM_MAX_IMAGE_BYTES') ?? '',
+      webhookPath: environment.get('TELEGRAM_WEBHOOK_PATH') ?? '',
+      webhookSecretEnv: 'TELEGRAM_WEBHOOK_SECRET',
     },
     google: {
       spreadsheetId: '',
@@ -101,6 +108,7 @@ export function configFromEnvironment(environment: Environment = systemEnvironme
       serviceAccountEmailEnv: credentialsJSON ? '' : 'GOOGLE_SERVICE_ACCOUNT_EMAIL',
       privateKeyEnv: credentialsJSON ? '' : 'GOOGLE_PRIVATE_KEY',
       metadataSheet: environment.get('GOOGLE_METADATA_SHEET') ?? '',
+      pendingSheet: environment.get('GOOGLE_PENDING_SHEET') ?? '',
       requestTimeout: environment.get('GOOGLE_REQUEST_TIMEOUT') ?? '',
     },
     app: {
@@ -138,7 +146,14 @@ export function normalizeConfig(
   const google = objectAt(raw, 'google');
   const app = objectAt(raw, 'app');
   const ai = objectAt(raw, 'ai');
-  assertKeys(telegram, ['token', 'tokenEnv', 'allowedUserId', 'maxImageBytes'], 'telegram');
+  assertKeys(telegram, [
+    'token',
+    'tokenEnv',
+    'allowedUserId',
+    'maxImageBytes',
+    'webhookPath',
+    'webhookSecretEnv',
+  ], 'telegram');
   assertKeys(google, [
     'spreadsheetId',
     'spreadsheetIdEnv',
@@ -147,6 +162,7 @@ export function normalizeConfig(
     'serviceAccountEmailEnv',
     'privateKeyEnv',
     'metadataSheet',
+    'pendingSheet',
     'requestTimeout',
   ], 'google');
   assertKeys(app, [
@@ -173,6 +189,9 @@ export function normalizeConfig(
 
   const tokenEnv = stringValue(telegram.tokenEnv) || 'TELEGRAM_BOT_TOKEN';
   const token = stringValue(telegram.token) || environment.get(tokenEnv)?.trim() || '';
+  const webhookPath = stringValue(telegram.webhookPath) || DEFAULTS.webhookPath;
+  const webhookSecretEnv = stringValue(telegram.webhookSecretEnv) || 'TELEGRAM_WEBHOOK_SECRET';
+  const webhookSecret = environment.get(webhookSecretEnv)?.trim() || '';
   const spreadsheetEnv = stringValue(google.spreadsheetIdEnv) || 'GOOGLE_SHEET_ID';
   const spreadsheetId = stringValue(google.spreadsheetId) ||
     environment.get(spreadsheetEnv)?.trim() || environment.get('GOOGLE_SHEET_ID')?.trim() || '';
@@ -195,10 +214,13 @@ export function normalizeConfig(
       token,
       allowedUserId: integerValue(telegram.allowedUserId, 0),
       maxImageBytes: numberValue(telegram.maxImageBytes, DEFAULTS.maxImageBytes),
+      webhookPath,
+      webhookSecret,
     },
     google: {
       spreadsheetId,
       metadataSheet: stringValue(google.metadataSheet) || DEFAULTS.metadataSheet,
+      pendingSheet: stringValue(google.pendingSheet) || DEFAULTS.pendingSheet,
       requestTimeoutMs: parseConfiguredDuration(google.requestTimeout, DEFAULTS.googleTimeoutMs),
       credentialSource,
     },
@@ -271,6 +293,14 @@ function validateConfig(config: RuntimeConfig): void {
   if (!config.telegram.maxImageBytes || config.telegram.maxImageBytes <= 0) {
     errors.push('telegram.maxImageBytes must be positive');
   }
+  if (!/^[A-Za-z0-9_-]{1,256}$/u.test(config.telegram.webhookSecret)) {
+    errors.push('telegram webhook secret must contain 1-256 letters, numbers, _ or -');
+  }
+  if (
+    !config.telegram.webhookPath.startsWith('/') || config.telegram.webhookPath === '/' ||
+    config.telegram.webhookPath.includes('?') || config.telegram.webhookPath.includes('#') ||
+    config.telegram.webhookPath === '/healthz'
+  ) errors.push('telegram webhook path is invalid');
   if (!config.google.spreadsheetId) errors.push('google.spreadsheetId is required');
   if (!config.app.timezone) {
     errors.push('app.timezone is required');

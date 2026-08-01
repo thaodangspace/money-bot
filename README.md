@@ -6,7 +6,7 @@ The service uses the existing spreadsheet schema and remains compatible with leg
 
 ## Features
 
-- Deno 2.x TypeScript Telegram long-polling bot.
+- Deno 2.x TypeScript Telegram webhook bot.
 - Single authorized private Telegram user.
 - Vietnamese transaction parsing:
   - `ăn tối 150k pizza`
@@ -44,7 +44,20 @@ deno task start:openrouter
 
 ### Deno Deploy
 
-Deno Deploy can run without `config.yaml`. Set the variables from `.env.example` in the Deploy dashboard and use `src/main.ts` as the dynamic entrypoint. When `./config.yaml` is absent, the bot automatically builds its configuration from environment variables. Assign Telegram, Google, and AI credentials to the **Production** context only; do not assign them to **Development**. Preview and Git Branch timelines serve a health response without starting Telegram polling, while the Production timeline serves the same response and runs the bot. Use OpenRouter or another publicly reachable AI endpoint; LM Studio on `localhost` is not available on Deploy.
+Deno Deploy can run without `config.yaml`. Set the variables from `.env.example` in the Deploy dashboard and use `src/main.ts` as the dynamic entrypoint. When `./config.yaml` is absent, the bot automatically builds its configuration from environment variables. Assign Telegram, Google, and AI credentials to the **Production** context only; do not assign them to **Development**. Preview and Git Branch timelines serve a health response without loading production credentials, while the Production timeline serves the webhook and runs the bot. Telegram wakes the deployment directly; no health URL visit or uptime service is required. Use OpenRouter or another publicly reachable AI endpoint; LM Studio on `localhost` is not available on Deploy.
+
+## Webhook deployment and local development
+
+Production endpoint: `https://money-bot.thaodangspace.deno.net/telegram/webhook`. Set `TELEGRAM_WEBHOOK_SECRET` to a random 1–256 character value using only letters, numbers, `_`, and `-`, and assign production credentials only to the Production context. After deployment run:
+
+```bash
+deno task telegram:webhook:set
+deno task telegram:webhook:info
+```
+
+(The command is `deno task`; the split above is only avoided by shell wrapping.) `set` uses `TELEGRAM_WEBHOOK_URL`, preserves pending updates by default, and registers `max_connections: 1` with only `message` and `callback_query`. Use `--drop-pending-updates` only deliberately. `delete` stops delivery; it does not enable another transport.
+
+For local development, start the webhook server, expose it through a Deno Deploy tunnel or another public HTTPS tunnel, set `TELEGRAM_WEBHOOK_URL` to the tunnel URL plus `/telegram/webhook`, and run `deno task telegram:webhook:set`. Prefer a separate development bot because each bot token has one active webhook URL. Restore the production URL with `set` after testing. Test `/start`, a text transaction, `/summary`, image confirmation, and image cancellation through Telegram without opening the health URL.
 
 ## Telegram commands
 
@@ -60,7 +73,7 @@ Ordinary text is sent to the configured LLM and treated as a transaction unless 
 
 Send one standalone JPEG, PNG, or WebP photo/document (up to `telegram.maxImageBytes`, 5 MiB by default), optionally with a short caption. The configured `ai.imageModel` (or `ai.model` when omitted) must support vision input.
 
-The bot extracts one clearly displayed final paid/transferred VND amount from a receipt or transfer, or every clearly completed transaction from a standalone transaction-list image (up to 20). Receipt line items are never separate transactions. It shows a preview and requires **Xác nhận** to write all listed entries, or **Hủy** to discard them. Partial/ambiguous lists, ambiguous/internal/pending transfers, albums, unsupported formats, and unclear images are rejected without a write. Pending previews expire after 10 minutes, are lost on bot restart, and must be resent if unavailable.
+The bot extracts one clearly displayed final paid/transferred VND amount from a receipt or transfer, or every clearly completed transaction from a standalone transaction-list image (up to 20). Receipt line items are never separate transactions. It shows a preview and requires **Xác nhận** to write all listed entries, or **Hủy** to discard them. Partial/ambiguous lists, ambiguous/internal/pending transfers, albums, unsupported formats, and unclear images are rejected without a write. Pending previews expire after 10 minutes and are stored as hashed-token events in the hidden `_money_bot_pending` worksheet, so confirmation survives restarts and instance changes.
 
 Images, raw OCR/model output, and captions are not stored. LM Studio can keep vision inference local; OpenRouter sends the image to its remote provider, so use it only when that privacy boundary is acceptable.
 
@@ -98,7 +111,7 @@ No automatic migration, cleanup, or de-duplication of historical rows is perform
 - Do not commit `config.yaml`, `.env`, or credential JSON files.
 - Run one money-bot instance per spreadsheet. Multiple writers can race Google Sheets' read-before-write idempotency check.
 - Logs avoid secret values and full credential contents; they also exclude image bytes, file URLs, OCR text, captions, and model payloads.
-- Image confirmation is process-local and uses the original image update ID for Sheets idempotency.
+- Image confirmation is durable in `_money_bot_pending` and uses the original image update ID for Sheets idempotency.
 
 ## Verification
 
@@ -121,4 +134,9 @@ Live Google Sheets integration should be run only against a dedicated test sprea
 - **Legacy data missing from summary**: old rows must be under a valid `DD/MM/YYYY` date header for the requested month/year.
 - **AI parsing unavailable**: ensure LM Studio is running with a model loaded at `ai.baseURL`, or set `ai.provider: openrouter` and export the configured API key.
 - **Image parsing unavailable**: configure `ai.imageModel` (or `ai.model`) with a vision-capable model. For unclear receipts/transfers, send one complete, clearer image and confirm the preview before it is saved.
-- **Telegram `getUpdates` conflict on Deno Deploy**: ensure credentials use only the Production environment-variable context. Preview and Git Branch timelines must not receive the bot token. Also stop any local or older hosted instance using the same token.
+- **Webhook URL/path mismatch**: register `https://money-bot.thaodangspace.deno.net/telegram/webhook` with `deno task telegram:webhook:set` and verify it with `deno task telegram:webhook:info`.
+- **Webhook authentication failure**: ensure `TELEGRAM_WEBHOOK_SECRET` matches the registered secret and is assigned only to Production.
+- **Pending updates or delivery errors**: inspect `deno task telegram:webhook:info`; check `last_error_message`, pending count, and stale or expired tunnel URLs.
+- **Preview/development URL registered accidentally**: run `telegram:webhook:set` with the production URL again. A bot has one active webhook URL.
+- **Unavailable image confirmation**: resend the image if its ten-minute entry expired or was cancelled.
+- **Webhook deleted**: register a valid URL again; deletion intentionally stops delivery and is not a fallback transport.
