@@ -40,8 +40,11 @@ export GOOGLE_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KE
 
 deno run --allow-read=config.yaml --allow-env src/main.ts --config ./config.yaml --dry-run
 deno task start:openrouter
-
 ```
+
+### Deno Deploy
+
+Deno Deploy can run without `config.yaml`. Set the variables from `.env.example` in the Deploy dashboard and use `src/main.ts` as the entrypoint. When `./config.yaml` is absent, the bot automatically builds its configuration from environment variables. Use OpenRouter or another publicly reachable AI endpoint; LM Studio on `localhost` is not available on Deploy.
 
 ## Telegram commands
 
