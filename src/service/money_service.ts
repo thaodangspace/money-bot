@@ -20,7 +20,7 @@ import {
   summaryUsageText,
   usageText,
 } from './format.ts';
-import { ImagePendingStore } from './image_pending_store.ts';
+import { InMemoryPendingImageStore, type PendingImageStore } from './image_pending_store.ts';
 import { elapsedMs, errorFields, type Logger, nullLogger } from '../shared/logger.ts';
 import type {
   AIParser,
@@ -38,8 +38,9 @@ export class MoneyService {
   readonly #ledger: Ledger;
   readonly #ai: AIParser;
   readonly #comments?: Commentator;
-  readonly #pending: ImagePendingStore;
+  readonly #pending: PendingImageStore;
   readonly #logger: Logger;
+  #pendingCount = 0;
 
   constructor(options: ServiceOptions) {
     this.#timeZone = options.timeZone ?? 'Asia/Ho_Chi_Minh';
@@ -47,7 +48,7 @@ export class MoneyService {
     this.#ledger = options.ledger;
     this.#ai = options.ai;
     this.#comments = options.comments;
-    this.#pending = new ImagePendingStore(this.#clock);
+    this.#pending = options.pending ?? new InMemoryPendingImageStore(this.#clock);
     this.#logger = options.logger ?? nullLogger;
   }
 
@@ -184,8 +185,9 @@ export class MoneyService {
     if (transactions.some((transaction) => transaction.date! > today)) {
       throw new Error('image transaction date is in the future');
     }
-    const token = this.#pending.add(transactions, updateId);
+    const token = await this.#pending.add(signal, transactions, updateId);
     if (!token) throw new Error('pending image capacity reached');
+    this.#pendingCount++;
     logger.info('service.image.prepare.success', {
       from: 'MoneyService.prepareImage',
       to: 'TelegramHandler',
@@ -203,7 +205,7 @@ export class MoneyService {
       from: 'TelegramHandler',
       to: 'MoneyService.confirmImage',
     });
-    const pending = this.#pending.beginConfirmation(token);
+    const pending = await this.#pending.getConfirmable(signal, token);
     if (!pending) {
       logger.info('service.image.confirm.unavailable', {
         from: 'MoneyService.confirmImage',
@@ -220,7 +222,8 @@ export class MoneyService {
       if (result.status !== 'written' && result.status !== 'duplicate') {
         throw new Error(`unexpected append status: ${result.status}`);
       }
-      this.#pending.complete(token);
+      await this.#pending.complete(signal, token);
+      this.#pendingCount = Math.max(0, this.#pendingCount - 1);
       logger.info('service.image.confirm.success', {
         from: 'MoneyService.confirmImage',
         to: 'TelegramHandler',
@@ -232,7 +235,8 @@ export class MoneyService {
         ? { text: duplicateBatchText(pending.transactions), parsed: true, duplicate: true }
         : { text: successBatchText(pending.transactions), parsed: true };
     } catch (error) {
-      this.#pending.releaseConfirmation(token);
+      this.#pending.release?.(token);
+      // Failed writes intentionally leave the pending event active for retry.
       logger.error('service.image.confirm.failed', {
         from: 'MoneyService.confirmImage',
         to: 'SheetsRepository.appendTransactions',
@@ -243,8 +247,10 @@ export class MoneyService {
     }
   }
 
-  cancelImage(token: string): ServiceResult {
-    return this.#pending.cancel(token)
+  async cancelImage(signal: AbortSignal, token: string): Promise<ServiceResult> {
+    const cancelled = await this.#pending.cancel(signal, token);
+    if (cancelled) this.#pendingCount = Math.max(0, this.#pendingCount - 1);
+    return cancelled
       ? { text: '✅ Đã hủy giao dịch từ ảnh.' }
       : { text: imageConfirmationUnavailableText() };
   }
@@ -305,7 +311,7 @@ export class MoneyService {
   }
 
   get pendingImageCount(): number {
-    return this.#pending.size;
+    return this.#pendingCount;
   }
 }
 

@@ -4,6 +4,7 @@ const environment: Environment = {
   get(name) {
     return {
       TELEGRAM_BOT_TOKEN: 'telegram-secret',
+      TELEGRAM_WEBHOOK_SECRET: 'webhook-secret',
       GOOGLE_SHEET_ID: 'sheet-id',
       GOOGLE_SERVICE_ACCOUNT_EMAIL: 'bot@example.iam.gserviceaccount.com',
       GOOGLE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----',

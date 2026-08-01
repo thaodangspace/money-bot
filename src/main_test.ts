@@ -1,23 +1,17 @@
-import { type RuntimeEnvironment, shouldRunPolling } from './main.ts';
-
+import { type RuntimeEnvironment, shouldRunFullApplication } from './main.ts';
 function environment(values: Record<string, string>): RuntimeEnvironment {
   return { get: (name) => values[name] };
 }
-
-Deno.test('local runtime uses Telegram polling', () => {
-  if (!shouldRunPolling(environment({}))) throw new Error('polling was disabled locally');
+Deno.test('local and production timelines run the webhook application', () => {
+  if (!shouldRunFullApplication(environment({}))) throw new Error('local runtime disabled');
+  if (
+    !shouldRunFullApplication(environment({ DENO_DEPLOY: 'true', DENO_TIMELINE: 'production' }))
+  ) throw new Error('production runtime disabled');
 });
-
-Deno.test('Deno Deploy production uses Telegram polling', () => {
-  if (!shouldRunPolling(environment({ DENO_DEPLOY: 'true', DENO_TIMELINE: 'production' }))) {
-    throw new Error('polling was disabled in production');
-  }
-});
-
-Deno.test('Deno Deploy preview and branch timelines do not poll Telegram', () => {
-  for (const timeline of ['preview/revision-id', 'git-branch/main', '']) {
-    if (shouldRunPolling(environment({ DENO_DEPLOY: 'true', DENO_TIMELINE: timeline }))) {
-      throw new Error(`polling was enabled for ${timeline || 'an unknown timeline'}`);
+Deno.test('Deno Deploy non-production timelines are health-only', () => {
+  for (const timeline of ['preview', 'git']) {
+    if (shouldRunFullApplication(environment({ DENO_DEPLOY: 'true', DENO_TIMELINE: timeline }))) {
+      throw new Error('non-production runtime enabled');
     }
   }
 });

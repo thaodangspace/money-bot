@@ -5,8 +5,11 @@
     "test:coverage": "deno test --lock=deno.lock --coverage=.coverage --allow-net=127.0.0.1 --allow-read=testdata src",
     "fmt:check": "deno fmt --check src deno.json",
     "lint": "deno lint src",
-    "dev:lmstudio": "deno run --watch --allow-read=config.yaml --allow-env --allow-net=api.telegram.org,sheets.googleapis.com,oauth2.googleapis.com,localhost:1234 src/main.ts",
-    "start:openrouter": "deno run --allow-read=config.yaml --allow-env --allow-net=api.telegram.org,sheets.googleapis.com,oauth2.googleapis.com,openrouter.ai src/main.ts"
+    "dev:lmstudio": "deno run --watch --allow-read=config.yaml --allow-env --allow-net src/main.ts",
+    "start:openrouter": "deno run --allow-read=config.yaml --allow-env --allow-net src/main.ts",
+    "telegram:webhook:set": "deno run --allow-env --allow-net=api.telegram.org src/tools/telegram_webhook.ts set",
+    "telegram:webhook:info": "deno run --allow-env --allow-net=api.telegram.org src/tools/telegram_webhook.ts info",
+    "telegram:webhook:delete": "deno run --allow-env --allow-net=api.telegram.org src/tools/telegram_webhook.ts delete"
   },
   "compilerOptions": {
     "strict": true,

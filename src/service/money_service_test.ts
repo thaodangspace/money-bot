@@ -158,7 +158,9 @@ Deno.test('image pending capacity and cancellation are bounded', async () => {
   if (!rejected || beforeCancel !== 16) {
     throw new Error('pending capacity was not enforced');
   }
-  if (!service.cancelImage(tokens[0]!).text.includes('Đã hủy')) throw new Error('cancel failed');
+  if (
+    !(await service.cancelImage(new AbortController().signal, tokens[0]!)).text.includes('Đã hủy')
+  ) throw new Error('cancel failed');
   const afterCancel = service.pendingImageCount;
   if (afterCancel !== 15) throw new Error('cancel did not remove entry');
 });

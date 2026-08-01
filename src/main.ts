@@ -4,22 +4,22 @@ import {
   ServiceAccountTokenProvider,
 } from './adapters/google_sheets/auth.ts';
 import { GoogleSheetsHTTPClient } from './adapters/google_sheets/client.ts';
+import { SheetsPendingImageStore } from './adapters/google_sheets/pending_store.ts';
 import { SheetsRepository } from './adapters/google_sheets/repository.ts';
+import { TelegramAuthorizer } from './adapters/telegram/authz.ts';
 import { TelegramClient } from './adapters/telegram/client.ts';
 import { TelegramHandler } from './adapters/telegram/handler.ts';
 import { TelegramImageFetcher } from './adapters/telegram/image_fetcher.ts';
-import { TelegramAuthorizer } from './adapters/telegram/authz.ts';
-import { runPolling } from './adapters/telegram/polling.ts';
+import { createWebhookHandler } from './adapters/telegram/webhook.ts';
 import { type CredentialSource, loadConfig } from './config/config.ts';
 import { MoneyService } from './service/money_service.ts';
-import { createLogger, errorFields, type LogLevel } from './shared/logger.ts';
+import { createLogger, type LogLevel } from './shared/logger.ts';
 
 export interface CLIOptions {
   configPath: string;
   dryRun: boolean;
   logLevel: string;
 }
-
 export interface RuntimeEnvironment {
   get(name: string): string | undefined;
 }
@@ -28,34 +28,17 @@ export async function main(args: string[] = Deno.args): Promise<void> {
   const options = parseArgs(args);
   const logger = createLogger(toLogLevel(options.logLevel));
   const environment: RuntimeEnvironment = { get: (name) => Deno.env.get(name) };
-  logger.info('app.start', {
-    configPath: options.configPath || '<environment>',
-    logLevel: options.logLevel,
-    dryRun: options.dryRun,
-    deploy: environment.get('DENO_DEPLOY') === 'true',
-    timeline: environment.get('DENO_TIMELINE') ?? 'local',
-  });
-  if (!shouldRunPolling(environment)) {
-    logger.info('polling.disabled', { reason: 'non-production deploy timeline' });
-    console.log('Telegram polling disabled outside the Deno Deploy production timeline');
-    await runHealthServer();
+  if (!shouldRunFullApplication(environment)) {
+    await runHealthOnlyRuntime();
     return;
   }
-
-  let config;
-  try {
-    config = await loadConfig(options.configPath);
-    logger.info('config.loaded', {
-      aiProvider: config.ai.provider,
-      aiModel: config.ai.model,
-      imageModel: config.ai.imageModel,
-      timezone: config.app.timezone,
-      credentialSource: config.google.credentialSource.kind,
-    });
-  } catch (error) {
-    logger.error('config.load.failed', errorFields(error));
-    throw error;
-  }
+  const config = await loadConfig(options.configPath);
+  logger.info('config.loaded', {
+    aiProvider: config.ai.provider,
+    aiModel: config.ai.model,
+    timezone: config.app.timezone,
+    credentialSource: config.google.credentialSource.kind,
+  });
   if (options.dryRun) {
     console.log(JSON.stringify({
       dryRun: true,
@@ -68,7 +51,6 @@ export async function main(args: string[] = Deno.args): Promise<void> {
     }));
     return;
   }
-
   const credentials = await readCredentials(config.google.credentialSource);
   const tokenProvider = new ServiceAccountTokenProvider(
     parseServiceAccountCredentials(credentials),
@@ -103,63 +85,49 @@ export async function main(args: string[] = Deno.args): Promise<void> {
     ledger: repository,
     ai,
     comments: ai,
+    pending: new SheetsPendingImageStore({
+      api: sheetsAPI,
+      spreadsheetId: config.google.spreadsheetId,
+      sheet: config.google.pendingSheet,
+    }),
     logger,
   });
   const telegram = new TelegramClient({ token: config.telegram.token, logger });
-  const imageFetcher = new TelegramImageFetcher(
-    telegram,
-    config.telegram.maxImageBytes,
-    fetch,
-    logger,
-  );
   const handler = new TelegramHandler({
     messenger: telegram,
     service,
     authorizer: new TelegramAuthorizer(config.telegram.allowedUserId),
-    imageFetcher,
+    imageFetcher: new TelegramImageFetcher(telegram, config.telegram.maxImageBytes, fetch, logger),
     maxOutputRunes: config.app.maxOutputRunes,
     logger,
   });
-
-  const controller = new AbortController();
-  const stop = () => controller.abort();
-  Deno.addSignalListener('SIGINT', stop);
-  Deno.addSignalListener('SIGTERM', stop);
-  const healthServer = isDenoDeploy(environment)
-    ? Deno.serve({ signal: controller.signal }, healthResponse)
-    : undefined;
-  logger.info('polling.start', { updateTimeoutMs: config.app.updateTimeoutMs });
-  try {
-    await runPolling(controller.signal, telegram, handler, {
+  await runWebhookRuntime(
+    createWebhookHandler(handler, {
+      path: config.telegram.webhookPath,
+      secret: config.telegram.webhookSecret,
       updateTimeoutMs: config.app.updateTimeoutMs,
       logger,
-    });
-  } catch (error) {
-    logger.error('polling.failed', errorFields(error));
-    throw error;
-  } finally {
-    logger.info('app.stop');
-    controller.abort();
-    await healthServer?.finished;
-    Deno.removeSignalListener('SIGINT', stop);
-    Deno.removeSignalListener('SIGTERM', stop);
-  }
+    }),
+  );
 }
 
-export function shouldRunPolling(environment: RuntimeEnvironment): boolean {
+export function shouldRunFullApplication(environment: RuntimeEnvironment): boolean {
   return !isDenoDeploy(environment) || environment.get('DENO_TIMELINE') === 'production';
 }
-
 function isDenoDeploy(environment: RuntimeEnvironment): boolean {
   return environment.get('DENO_DEPLOY') === 'true';
 }
 
-async function runHealthServer(): Promise<void> {
+export async function runWebhookRuntime(
+  webhook: (request: Request) => Response | Promise<Response>,
+): Promise<void> {
   const controller = new AbortController();
   const stop = () => controller.abort();
   Deno.addSignalListener('SIGINT', stop);
   Deno.addSignalListener('SIGTERM', stop);
-  const server = Deno.serve({ signal: controller.signal }, healthResponse);
+  const portValue = Deno.env.get('APP_PORT') ?? '8000';
+  const port = /^\d+$/u.test(portValue) ? Number(portValue) : 8000;
+  const server = Deno.serve({ signal: controller.signal, port }, webhook);
   try {
     await server.finished;
   } finally {
@@ -167,11 +135,16 @@ async function runHealthServer(): Promise<void> {
     Deno.removeSignalListener('SIGTERM', stop);
   }
 }
-
-function healthResponse(): Response {
-  return new Response('ok\n', {
-    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-  });
+async function runHealthOnlyRuntime(): Promise<void> {
+  await runWebhookRuntime(healthResponse);
+}
+function healthResponse(request: Request): Response {
+  const path = new URL(request.url).pathname;
+  return request.method === 'GET' && (path === '/' || path === '/healthz')
+    ? new Response('ok\n', {
+      headers: { 'Cache-Control': 'no-store', 'Content-Type': 'text/plain; charset=utf-8' },
+    })
+    : new Response('not found\n', { status: 404, headers: { 'Cache-Control': 'no-store' } });
 }
 
 export function parseArgs(args: string[]): CLIOptions {
@@ -187,27 +160,21 @@ export function parseArgs(args: string[]): CLIOptions {
         );
       }
       configPath = args[++index] ?? '';
-    } else if (arg === '--dry-run') {
-      dryRun = true;
-    } else if (arg === '--log-level') {
-      logLevel = args[++index] ?? '';
-    } else if (arg === '--help' || arg === '-h') {
+    } else if (arg === '--dry-run') dryRun = true;
+    else if (arg === '--log-level') logLevel = args[++index] ?? '';
+    else if (arg === '--help' || arg === '-h') {
       console.log('Usage: deno run src/main.ts [--config path] [--dry-run] [--log-level level]');
       return { configPath, dryRun: true, logLevel };
-    } else {
-      throw new Error(`unknown argument: ${arg}`);
-    }
+    } else throw new Error(`unknown argument: ${arg}`);
   }
   if (!logLevel.trim()) throw new Error('--log-level requires a value');
   return { configPath, dryRun, logLevel };
 }
-
 function toLogLevel(value: string): LogLevel {
   const level = value.trim().toLowerCase();
   if (level === 'debug' || level === 'info' || level === 'warn' || level === 'error') return level;
   throw new Error(`unsupported --log-level: ${value}`);
 }
-
 async function readCredentials(source: CredentialSource): Promise<string> {
   if (source.kind === 'file') return await Deno.readTextFile(source.file);
   if (source.kind === 'json_env') return source.json;
@@ -217,7 +184,6 @@ async function readCredentials(source: CredentialSource): Promise<string> {
     private_key: source.privateKey,
   });
 }
-
 if (import.meta.main) {
   main().catch((error) => {
     console.error(String(error));
