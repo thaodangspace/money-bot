@@ -1,38 +1,29 @@
 # money-bot Architecture Notes
 
-`money-bot` is a Go Telegram bot that records Vietnamese personal-finance transactions to Google Sheets.
+`money-bot` is a Deno 2.x TypeScript Telegram bot that records Vietnamese personal-finance transactions to Google Sheets.
 
 ## Common Commands
 
-Use local caches in sandboxed agent runs if the default Go cache is blocked:
-
 ```bash
-GOTOOLCHAIN=local GOMODCACHE=$PWD/.gomodcache GOCACHE=$PWD/.gocache GOSUMDB=off go test ./...
-GOTOOLCHAIN=local GOMODCACHE=$PWD/.gomodcache GOCACHE=$PWD/.gocache GOSUMDB=off go test -race ./telegram ./sheets ./ai
-GOTOOLCHAIN=local GOMODCACHE=$PWD/.gomodcache GOCACHE=$PWD/.gocache GOSUMDB=off go vet ./...
-GOTOOLCHAIN=local GOMODCACHE=$PWD/.gomodcache GOCACHE=$PWD/.gocache GOSUMDB=off go run ./cmd/money-bot --config ./testdata/config.example.yaml --dry-run
+deno task fmt:check
+deno task lint
+deno task check
+deno task test
+deno run --allow-read=testdata --allow-env src/main.ts --config ./testdata/config.example.yaml --dry-run
 ```
 
-Normal developer commands outside the sandbox:
-
-```bash
-go test ./...
-go vet ./...
-go run ./cmd/money-bot --config ./config.yaml --dry-run
-go run ./cmd/money-bot --config ./config.yaml
-```
+Production tasks are least-privilege and are defined in `deno.json`. Do not use `--allow-all`.
 
 ## Project Layout
 
-- `cmd/money-bot`: CLI entrypoint, config loading, dependency composition, signal handling, Telegram polling startup.
-- `config`: strict YAML/env config loading, defaults, path expansion, timezone loading, and credential-source selection.
-- `authz`: single authorized private Telegram user guard.
-- `domain`: transport-neutral transaction and monthly summary types.
-- `parser`: deterministic Vietnamese transaction and current-month summary intent parsing.
-- `sheets`: Google Sheets repository, monthly worksheet creation, flat row writes, hidden metadata/idempotency, legacy reads, and summaries.
-- `ai`: OpenAI-compatible LM Studio/OpenRouter client, strict AI JSON validation, and bounded multimodal image extraction.
-- `service`: business orchestration, Vietnamese response formatting, and bounded process-local image confirmation state.
-- `telegram`: Telegram Bot API adapter, bounded byte-verified image acquisition, Markdown escaping/fallback, command/callback handlers, chunking, and sequential polling.
+- `src/main.ts`: CLI entrypoint, configuration, dependency composition, signals, and polling startup.
+- `src/config`: strict YAML-compatible configuration loading, defaults, durations, environment resolution, and credential-source selection.
+- `src/domain`: transport-neutral transaction, date, and monthly-summary types.
+- `src/parser`: deterministic Vietnamese amount, transaction, intent, and summary-period parsing.
+- `src/service`: business orchestration, Vietnamese formatting, and bounded image confirmation state.
+- `src/adapters/ai`: OpenAI-compatible text/vision client and strict response validation.
+- `src/adapters/google_sheets`: service-account JWT auth, Sheets REST client, idempotent repository, flat writes, and legacy reads.
+- `src/adapters/telegram`: Bot API client, polling, handlers, authorization, Markdown fallback, chunking, and image acquisition.
 
 ## Spreadsheet Invariants
 
@@ -40,28 +31,23 @@ go run ./cmd/money-bot --config ./config.yaml
 - New worksheets are headerless and flat: `DD/MM/YYYY | income|expense | content | amount`.
 - No blank rows, date-group rows, or visible headers are written to new monthly worksheets.
 - `_money_bot_meta` is bot-owned and hidden. It stores schema version, Telegram update ID, processed timestamp, target sheet, and outcome.
-- Transaction row and metadata row are appended in the same batch update for idempotency/crash consistency.
-- Legacy numeric sheets `1` through `12` are read-only compatibility inputs. Do not rewrite them automatically.
-- `/summary` combines current `YYYY-MM` flat rows and legacy rows under matching date headers. It reports totals/count/balance only; no category breakdown.
+- Transaction rows and the metadata row are appended in one batch update for idempotency/crash consistency.
+- Legacy numeric sheets `1` through `12` are read-only compatibility inputs.
+- `/summary` combines current `YYYY-MM` flat rows and legacy rows under matching date headers and reports totals/count/balance only.
 
-## Security/Operational Decisions
+## Security and Operational Decisions
 
-- Single-user only: `telegram.allowedUserId` must match both Telegram user ID and private chat ID.
+- Single-user only: the configured Telegram user ID must match both Telegram user ID and private chat ID.
 - Unauthorized updates must return before parser, AI, or Google calls.
-- Run only one bot instance per spreadsheet; multiple bot instances can race Google Sheets read-before-write idempotency checks.
-- Do not log Telegram tokens, Google private keys, credential JSON, OpenRouter API keys, Authorization headers, or full credential contents.
-- AI is required for free-text parsing. Text uses `ai.model`; images use `ai.imageModel` (defaulting to that text model) and require vision support. AI never supplies canonical summary arithmetic.
-- Image media is accepted only from the authorized private user, is limited by `telegram.maxImageBytes` (5 MiB default), byte-verified as JPEG/PNG/WebP, held in memory only, and must be explicitly confirmed before a Sheets write.
-- Image pending confirmations are process-local, expire after 10 minutes, cap at 16, and use opaque random callback tokens; writes use the original image update ID.
-- Never log or persist image bytes, Telegram file URLs/IDs, captions, raw OCR/model payloads, or bank details. OpenRouter receives image content remotely; LM Studio may keep it local.
-- Timezone defaults to `Asia/Ho_Chi_Minh`; transaction date and target sheet must use the configured location.
+- Run only one bot instance per spreadsheet; multiple instances can race read-before-write idempotency checks.
+- Never log Telegram tokens, Google private keys, credential JSON, OpenRouter API keys, Authorization headers, or full credential contents.
+- AI is required for free-text parsing. Text uses `ai.model`; images use `ai.imageModel` and require vision support.
+- Images are accepted only from the authorized private user, are byte-limited and verified as JPEG/PNG/WebP, held in memory only, and explicitly confirmed before a Sheets write.
+- Image previews are process-local, expire after ten minutes, cap at sixteen, and use opaque callback tokens. Writes use the original image update ID.
+- Never log or persist image bytes, Telegram file URLs/IDs, captions, raw model payloads, or bank details.
 
 ## Testing Notes
 
-- Keep core behavior behind fakes/interfaces; default tests must not require live Telegram, Google, or OpenRouter credentials.
-- `sheets` has optional live integration scaffolding gated by `MONEY_BOT_SHEETS_INTEGRATION=1`, an explicit test spreadsheet ID, and a write confirmation flag.
-- Add tests when changing parsing, multimodal request construction, pending-image state, row schema, metadata/idempotency, legacy summary reads, Telegram authorization/routing, or OpenRouter validation.
+Keep core behavior behind interfaces/fakes. Default tests must not require live Telegram, Google, OpenRouter, or LM Studio credentials. Add tests when changing parsing, multimodal requests, pending-image state, row schema, metadata/idempotency, legacy summaries, authorization/routing, or polling.
 
-## Dependency Notes
-
-- `google.golang.org/api` is pinned to a Go 1.24-compatible version. Do not upgrade to a version requiring Go 1.25 unless the project Go version is intentionally updated.
+Google live integration is intentionally opt-in and must use a dedicated test spreadsheet and explicit write confirmation.

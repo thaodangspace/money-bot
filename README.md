@@ -1,12 +1,12 @@
 # money-bot
 
-`money-bot` is a private Go Telegram bot for recording Vietnamese personal-finance transactions into Google Sheets.
+`money-bot` is a private Deno 2.x/TypeScript Telegram bot for recording Vietnamese personal-finance transactions into Google Sheets.
 
-It is the Go/Telegram migration of the Deno/Slack `tiubot` behavior, with a flatter new spreadsheet schema and compatibility reads for old monthly sheets.
+The service uses the existing spreadsheet schema and remains compatible with legacy monthly sheets; no spreadsheet data migration is required.
 
 ## Features
 
-- Go 1.24 Telegram long-polling bot.
+- Deno 2.x TypeScript Telegram long-polling bot.
 - Single authorized private Telegram user.
 - Vietnamese transaction parsing:
   - `ăn tối 150k pizza`
@@ -38,8 +38,9 @@ export GOOGLE_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KE
 # Configure ai.imageModel with a vision-capable model to capture transactions from images.
 # Or configure ai.provider: openrouter and export OPENROUTER_API_KEY.
 
-go run ./cmd/money-bot --config ./config.yaml --dry-run
-go run ./cmd/money-bot --config ./config.yaml
+deno run --allow-read=config.yaml --allow-env src/main.ts --config ./config.yaml --dry-run
+deno task start:openrouter
+
 ```
 
 ## Telegram commands
@@ -101,21 +102,14 @@ No automatic migration, cleanup, or de-duplication of historical rows is perform
 The default test suite uses fakes and local HTTP servers; it does not require live Telegram, Google, OpenRouter, or LM Studio credentials.
 
 ```bash
-go test ./...
-go test -race ./telegram ./sheets ./ai
-go vet ./...
-go build ./cmd/money-bot
-go run ./cmd/money-bot --config ./testdata/config.example.yaml --dry-run
+deno task fmt:check
+deno task lint
+deno task check
+deno task test
+
 ```
 
-Optional live Sheets integration is intentionally skipped unless explicitly enabled:
-
-```bash
-MONEY_BOT_SHEETS_INTEGRATION=1 \
-MONEY_BOT_TEST_SPREADSHEET_ID='test-sheet-id' \
-MONEY_BOT_CONFIRM_LIVE_SHEETS_WRITE=1 \
-go test ./sheets -run Integration -v
-```
+Live Google Sheets integration should be run only against a dedicated test spreadsheet and is not part of the default test suite.
 
 ## Troubleshooting
 
