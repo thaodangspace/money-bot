@@ -1,5 +1,6 @@
 import { detectMonthlySummaryIntent } from '../parser/intent.ts';
 import { parseMonthlySummaryPeriod } from '../parser/summary_period.ts';
+import { parseTransaction, TransactionNotRecognizedError } from '../parser/transaction.ts';
 import { currentPlainDate } from '../shared/calendar.ts';
 import { type Clock, systemClock } from '../shared/runtime.ts';
 import type { Transaction } from '../domain/transaction.ts';
@@ -69,13 +70,20 @@ export class MoneyService {
     text = text.trim();
     if (!text) return { text: usageText() };
     let transaction: Transaction;
+    let usedAI = false;
     try {
-      transaction = await this.#ai.parseTransaction(signal, text);
+      try {
+        transaction = parseTransaction(text);
+      } catch (error) {
+        if (!(error instanceof TransactionNotRecognizedError)) throw error;
+        usedAI = true;
+        transaction = await this.#ai.parseTransaction(signal, text);
+      }
       validateTransaction(transaction);
     } catch (error) {
       logger.warn('service.record.parse_failed', {
         from: 'MoneyService.record',
-        to: 'AIClient.parseTransaction',
+        to: usedAI ? 'AIClient.parseTransaction' : 'DeterministicParser.parseTransaction',
         durationMs: elapsedMs(started),
         ...errorFields(error),
       });
@@ -107,12 +115,12 @@ export class MoneyService {
         durationMs: elapsedMs(started),
         updateId,
       });
-      return { text: duplicateText(transaction), parsed: true, usedAI: true, duplicate: true };
+      return { text: duplicateText(transaction), parsed: true, usedAI, duplicate: true };
     }
-    let response = successText(transaction, true);
+    let response = successText(transaction, usedAI);
     if (this.#comments) {
       try {
-        const comment = (await this.#comments.confirmation(signal, transaction, true)).trim();
+        const comment = (await this.#comments.confirmation(signal, transaction, usedAI)).trim();
         if (comment) response += `\n${boundText(comment, 240)}`;
       } catch (error) {
         logger.warn('service.record.commentary_failed', {
@@ -127,9 +135,9 @@ export class MoneyService {
       to: 'TelegramHandler',
       durationMs: elapsedMs(started),
       updateId,
-      usedAI: true,
+      usedAI,
     });
-    return { text: response, parsed: true, usedAI: true };
+    return { text: response, parsed: true, usedAI };
   }
 
   async prepareImage(

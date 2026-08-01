@@ -9,7 +9,7 @@ import type { MonthlySummary } from '../domain/summary.ts';
 import type { ImageTransactionExtraction } from '../adapters/ai/image_types.ts';
 
 class FakeAI implements AIParser {
-  parseTransaction(): Promise<Transaction> {
+  parseTransaction(_signal: AbortSignal, _message: string): Promise<Transaction> {
     return Promise.resolve({
       category: 'food',
       note: 'receipt',
@@ -31,6 +31,73 @@ class FakeAI implements AIParser {
     });
   }
 }
+
+class UnavailableAI extends FakeAI {
+  transactionCalls = 0;
+
+  override parseTransaction(): Promise<Transaction> {
+    this.transactionCalls++;
+    return Promise.reject(new Error('AI unavailable'));
+  }
+}
+
+class CountingAI extends FakeAI {
+  transactionCalls = 0;
+
+  override parseTransaction(signal: AbortSignal, message: string): Promise<Transaction> {
+    this.transactionCalls++;
+    return super.parseTransaction(signal, message);
+  }
+}
+
+Deno.test('canonical transactions bypass AI and preserve parsed fields', async () => {
+  const ai = new UnavailableAI();
+  const ledger = new SimpleLedger();
+  const service = new MoneyService({
+    ledger,
+    ai,
+    clock: () => new Date('2026-07-18T10:00:00Z'),
+  });
+
+  const expense = await service.record(new AbortController().signal, 101, 'ăn tối 130k');
+  const expenseWithNote = await service.record(
+    new AbortController().signal,
+    102,
+    'ăn tối 130k vịt',
+  );
+  const income = await service.record(
+    new AbortController().signal,
+    103,
+    'thu lương 20tr tháng 7',
+  );
+
+  if (ai.transactionCalls !== 0) throw new Error('canonical transaction called AI');
+  if (expense.usedAI || expenseWithNote.usedAI || income.usedAI) {
+    throw new Error('canonical transaction was marked as AI-parsed');
+  }
+  const [first, second, third] = ledger.appended;
+  if (
+    first?.type !== TRANSACTION_EXPENSE || first.amount !== 130_000 ||
+    second?.type !== TRANSACTION_EXPENSE || second.amount !== 130_000 || second.note !== 'vịt' ||
+    third?.type !== TRANSACTION_INCOME || third.amount !== 20_000_000 ||
+    third.category !== 'Lương' || third.note !== 'tháng 7'
+  ) throw new Error(JSON.stringify(ledger.appended));
+  if (second.originalMessage !== 'ăn tối 130k vịt') {
+    throw new Error(`original message: ${second.originalMessage}`);
+  }
+});
+
+Deno.test('unrecognized transactions are delegated to AI', async () => {
+  const ai = new CountingAI();
+  const service = new MoneyService({ ledger: new SimpleLedger(), ai });
+
+  const result = await service.record(new AbortController().signal, 104, 'paid the rent yesterday');
+
+  if (!result.parsed || !result.usedAI || ai.transactionCalls !== 1) {
+    throw new Error(JSON.stringify(result));
+  }
+  if (!result.text.includes('AI đã hỗ trợ')) throw new Error(result.text);
+});
 
 class BlockingLedger implements Ledger {
   appendCalls = 0;
@@ -166,7 +233,14 @@ Deno.test('image pending capacity and cancellation are bounded', async () => {
 });
 
 class SimpleLedger implements Ledger {
-  appendTransactions(): Promise<AppendBatchResult> {
+  appended: Transaction[] = [];
+
+  appendTransactions(
+    _signal: AbortSignal,
+    _updateId: number,
+    transactions: Transaction[],
+  ): Promise<AppendBatchResult> {
+    this.appended.push(...transactions);
     return Promise.resolve({ status: 'written', targetSheets: ['2026-07'] });
   }
 
