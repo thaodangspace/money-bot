@@ -22,6 +22,7 @@ It is the Go/Telegram migration of the Deno/Slack `tiubot` behavior, with a flat
 - Hidden `_money_bot_meta` worksheet for Telegram update idempotency.
 - `/summary` current-month totals across new and legacy sheets, with optional month arguments for older months.
 - Required LLM parsing for free-text transactions, with local LM Studio/OpenAI-compatible endpoint support and OpenRouter support.
+- JPEG, PNG, or WebP receipt and completed bank-transfer image capture, with explicit confirmation before a Sheets write.
 
 ## Quick start
 
@@ -34,6 +35,7 @@ export GOOGLE_SHEET_ID='your-sheet-id'
 export GOOGLE_SERVICE_ACCOUNT_EMAIL='money-bot@project.iam.gserviceaccount.com'
 export GOOGLE_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n'
 # Default AI config expects LM Studio running locally with a loaded model.
+# Configure ai.imageModel with a vision-capable model to capture transactions from images.
 # Or configure ai.provider: openrouter and export OPENROUTER_API_KEY.
 
 go run ./cmd/money-bot --config ./config.yaml --dry-run
@@ -49,6 +51,14 @@ go run ./cmd/money-bot --config ./config.yaml
 - `/help` - syntax help
 
 Ordinary text is sent to the configured LLM and treated as a transaction unless it is a command or a summary intent such as `chi tiêu tháng này`.
+
+## Image transactions
+
+Send one standalone JPEG, PNG, or WebP photo/document (up to `telegram.maxImageBytes`, 5 MiB by default), optionally with a short caption. The configured `ai.imageModel` (or `ai.model` when omitted) must support vision input.
+
+The bot extracts only one clearly displayed final paid/transferred VND amount, then shows an income/expense preview. Tap **Xác nhận** to write it or **Hủy** to discard it. It rejects item lists without a clear total, ambiguous/internal/pending transfers, albums, unsupported formats, and unclear images. Pending previews expire after 10 minutes, are lost on bot restart, and must be resent if unavailable.
+
+Images, raw OCR/model output, and captions are not stored. LM Studio can keep vision inference local; OpenRouter sends the image to its remote provider, so use it only when that privacy boundary is acceptable.
 
 ## Google Sheets setup
 
@@ -83,7 +93,8 @@ No automatic migration, cleanup, or de-duplication of historical rows is perform
 - Unauthorized updates do not call parser, AI, or Google APIs.
 - Do not commit `config.yaml`, `.env`, or credential JSON files.
 - Run one money-bot instance per spreadsheet. Multiple writers can race Google Sheets' read-before-write idempotency check.
-- Logs avoid secret values and full credential contents.
+- Logs avoid secret values and full credential contents; they also exclude image bytes, file URLs, OCR text, captions, and model payloads.
+- Image confirmation is process-local and uses the original image update ID for Sheets idempotency.
 
 ## Verification
 
@@ -112,3 +123,4 @@ go test ./sheets -run Integration -v
 - **Duplicate message not added**: expected behavior when Telegram redelivers the same update ID.
 - **Legacy data missing from summary**: old rows must be under a valid `DD/MM/YYYY` date header for the requested month/year.
 - **AI parsing unavailable**: ensure LM Studio is running with a model loaded at `ai.baseURL`, or set `ai.provider: openrouter` and export the configured API key.
+- **Image parsing unavailable**: configure `ai.imageModel` (or `ai.model`) with a vision-capable model. For unclear receipts/transfers, send one complete, clearer image and confirm the preview before it is saved.

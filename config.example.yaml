@@ -4,6 +4,8 @@ telegram:
   token: ""
   # Numeric private-chat Telegram user ID. Only this user/chat is authorized.
   allowedUserId: 123456789
+  # Maximum source-image download size (5 MiB). JPEG, PNG, and WebP only.
+  maxImageBytes: 5242880
 
 google:
   # May also be supplied by spreadsheetIdEnv or GOOGLE_SHEET_ID.
@@ -29,6 +31,8 @@ ai:
   # Local LM Studio/OpenAI-compatible server is the default.
   provider: lmstudio
   model: local-model
+  # Optional vision-capable model for receipt/transfer images; defaults to model.
+  imageModel: local-model
   baseURL: http://localhost:1234/v1
   apiKeyEnv: ""
   # For OpenRouter instead, use:

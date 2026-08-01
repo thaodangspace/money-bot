@@ -17,6 +17,7 @@ type BotAPI interface {
 	Send(c tgbotapi.Chattable) (tgbotapi.Message, error)
 	Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error)
 	GetUpdates(config tgbotapi.UpdateConfig) ([]tgbotapi.Update, error)
+	GetFileDirectURL(fileID string) (string, error)
 }
 
 type MessengerAdapter struct {
@@ -153,12 +154,40 @@ func redactTelegramToken(message string) string {
 
 func convertUpdate(update tgbotapi.Update) (Update, bool) {
 	if update.Message != nil && update.Message.From != nil {
-		return Update{ID: update.UpdateID, Message: &Message{ChatID: update.Message.Chat.ID, UserID: update.Message.From.ID, Text: update.Message.Text, IsBot: update.Message.From.IsBot}}, true
+		message := &Message{
+			ChatID:       update.Message.Chat.ID,
+			UserID:       update.Message.From.ID,
+			Text:         update.Message.Text,
+			Caption:      update.Message.Caption,
+			MediaGroupID: update.Message.MediaGroupID,
+			IsBot:        update.Message.From.IsBot,
+		}
+		if photo := largestPhoto(update.Message.Photo); photo != nil {
+			message.Image = &ImageReference{FileID: photo.FileID, DeclaredSize: int64(photo.FileSize)}
+		} else if document := update.Message.Document; document != nil && document.FileID != "" {
+			message.Image = &ImageReference{FileID: document.FileID, DeclaredSize: int64(document.FileSize), DeclaredMIME: document.MimeType}
+		}
+		return Update{ID: update.UpdateID, Message: message}, true
 	}
 	if update.CallbackQuery != nil && update.CallbackQuery.From != nil && update.CallbackQuery.Message != nil {
 		return Update{ID: update.UpdateID, Callback: &Callback{ID: update.CallbackQuery.ID, ChatID: update.CallbackQuery.Message.Chat.ID, UserID: update.CallbackQuery.From.ID, MessageID: update.CallbackQuery.Message.MessageID, Data: update.CallbackQuery.Data}}, true
 	}
 	return Update{}, false
+}
+
+func largestPhoto(photos []tgbotapi.PhotoSize) *tgbotapi.PhotoSize {
+	var largest *tgbotapi.PhotoSize
+	for i := range photos {
+		photo := &photos[i]
+		if photo.FileID == "" {
+			continue
+		}
+		if largest == nil || int64(photo.Width)*int64(photo.Height) > int64(largest.Width)*int64(largest.Height) ||
+			(int64(photo.Width)*int64(photo.Height) == int64(largest.Width)*int64(largest.Height) && photo.FileSize > largest.FileSize) {
+			largest = photo
+		}
+	}
+	return largest
 }
 
 func toTelegramKeyboard(keyboard InlineKeyboard) tgbotapi.InlineKeyboardMarkup {

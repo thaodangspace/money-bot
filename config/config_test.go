@@ -26,7 +26,7 @@ ai: {}
 	if err != nil {
 		t.Fatalf("LoadWithEnv() error = %v", err)
 	}
-	if cfg.Telegram.Token != "test-token" || cfg.Telegram.AllowedUserID != 42 {
+	if cfg.Telegram.Token != "test-token" || cfg.Telegram.AllowedUserID != 42 || cfg.Telegram.MaxImageBytes != DefaultMaxImageBytes {
 		t.Fatalf("telegram = %#v", cfg.Telegram)
 	}
 	wantCreds := filepath.Join(dir, "creds.json")
@@ -42,8 +42,57 @@ ai: {}
 	if cfg.App.MaxInputRunes != DefaultMaxInputRunes || cfg.App.MaxOutputRunes != DefaultMaxOutputRunes {
 		t.Fatalf("app size defaults = %#v", cfg.App)
 	}
-	if !cfg.AI.Enabled || cfg.AI.Provider != AIProviderLMStudio || cfg.AI.BaseURL != DefaultLMStudioBaseURL || cfg.AI.Model != DefaultLMStudioModel {
+	if !cfg.AI.Enabled || cfg.AI.Provider != AIProviderLMStudio || cfg.AI.BaseURL != DefaultLMStudioBaseURL || cfg.AI.Model != DefaultLMStudioModel || cfg.AI.ImageModel != DefaultLMStudioModel {
 		t.Fatalf("ai defaults = %#v", cfg.AI)
+	}
+}
+
+func TestLoadImageConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	writeConfig(t, cfgPath, `
+telegram:
+  token: tok
+  allowedUserId: 42
+  maxImageBytes: 1234
+google:
+  spreadsheetId: sheet
+  credentialsFile: ./creds.json
+app: {}
+ai:
+  model: text-model
+  imageModel: vision-model
+`)
+	cfg, err := LoadWithEnv(cfgPath, mapEnv(nil))
+	if err != nil {
+		t.Fatalf("LoadWithEnv() error = %v", err)
+	}
+	if cfg.Telegram.MaxImageBytes != 1234 || cfg.AI.Model != "text-model" || cfg.AI.ImageModel != "vision-model" {
+		t.Fatalf("image config = telegram=%d model=%q imageModel=%q", cfg.Telegram.MaxImageBytes, cfg.AI.Model, cfg.AI.ImageModel)
+	}
+}
+
+func TestLoadRejectsNonPositiveImageLimit(t *testing.T) {
+	for _, imageLimit := range []string{"0", "-1"} {
+		t.Run(imageLimit, func(t *testing.T) {
+			dir := t.TempDir()
+			cfgPath := filepath.Join(dir, "config.yaml")
+			writeConfig(t, cfgPath, `
+telegram:
+  token: tok
+  allowedUserId: 42
+  maxImageBytes: `+imageLimit+`
+google:
+  spreadsheetId: sheet
+  credentialsFile: ./creds.json
+app: {}
+ai: {}
+`)
+			_, err := LoadWithEnv(cfgPath, mapEnv(nil))
+			if err == nil || !strings.Contains(err.Error(), "telegram.maxImageBytes must be positive") {
+				t.Fatalf("LoadWithEnv() error = %v", err)
+			}
+		})
 	}
 }
 
@@ -189,7 +238,7 @@ ai: {}
 
 	bad := Config{Telegram: TelegramConfig{Token: "tok", AllowedUserID: 42}, Google: GoogleConfig{SpreadsheetID: "sheet", MetadataSheet: "meta", CredentialSource: GoogleCredentialSource{Kind: GoogleCredentialFile, File: "/x"}}, App: AppConfig{Location: time.Local}, AI: AIConfig{RequestTimeout: time.Second}}
 	err = bad.Validate()
-	if err == nil || !strings.Contains(err.Error(), "updateTimeout") || !strings.Contains(err.Error(), "shutdownTimeout") || !strings.Contains(err.Error(), "maxInputRunes") || !strings.Contains(err.Error(), "maxOutputRunes") {
+	if err == nil || !strings.Contains(err.Error(), "updateTimeout") || !strings.Contains(err.Error(), "shutdownTimeout") || !strings.Contains(err.Error(), "maxInputRunes") || !strings.Contains(err.Error(), "maxOutputRunes") || !strings.Contains(err.Error(), "maxImageBytes") || !strings.Contains(err.Error(), "imageModel") {
 		t.Fatalf("Validate() error = %v", err)
 	}
 }

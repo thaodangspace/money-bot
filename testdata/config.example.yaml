@@ -2,6 +2,7 @@ telegram:
   token: "123456:test-token"
   tokenEnv: ""
   allowedUserId: 123456789
+  maxImageBytes: 5242880
 
 google:
   spreadsheetId: "test-spreadsheet-id"
@@ -19,6 +20,7 @@ app:
 ai:
   provider: lmstudio
   model: local-model
+  imageModel: local-model
   baseURL: http://localhost:1234/v1
   openrouterReferer: https://github.com/thaodangspace/money-bot
   openrouterAppName: money-bot

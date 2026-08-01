@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -20,6 +21,7 @@ const (
 	DefaultAITimeout         = 20 * time.Second
 	DefaultMaxInputRunes     = 2000
 	DefaultMaxOutputRunes    = 3900
+	DefaultMaxImageBytes     = int64(5 * 1024 * 1024)
 	DefaultAIProvider        = "lmstudio"
 	AIProviderLMStudio       = "lmstudio"
 	AIProviderOpenRouter     = "openrouter"
@@ -48,6 +50,9 @@ type TelegramConfig struct {
 	Token         string `yaml:"token"`
 	TokenEnv      string `yaml:"tokenEnv"`
 	AllowedUserID int64  `yaml:"allowedUserId"`
+	MaxImageBytes int64  `yaml:"maxImageBytes"`
+
+	maxImageBytesConfigured bool
 }
 
 type GoogleConfig struct {
@@ -91,12 +96,13 @@ type AppConfig struct {
 
 type AIConfig struct {
 	// Enabled is kept for backward-compatible config files. AI is always enabled.
-	Enabled   bool   `yaml:"enabled"`
-	Provider  string `yaml:"provider"`
-	APIKeyEnv string `yaml:"apiKeyEnv"`
-	APIKey    string `yaml:"-"`
-	Model     string `yaml:"model"`
-	BaseURL   string `yaml:"baseURL"`
+	Enabled    bool   `yaml:"enabled"`
+	Provider   string `yaml:"provider"`
+	APIKeyEnv  string `yaml:"apiKeyEnv"`
+	APIKey     string `yaml:"-"`
+	Model      string `yaml:"model"`
+	ImageModel string `yaml:"imageModel"`
+	BaseURL    string `yaml:"baseURL"`
 
 	// OpenRouter fields are kept for backward-compatible config files.
 	OpenRouterAPIKeyEnv string        `yaml:"openrouterApiKeyEnv"`
@@ -119,18 +125,26 @@ func LoadWithEnv(path string, getenv func(string) string) (*Config, error) {
 	if getenv == nil {
 		getenv = os.Getenv
 	}
-	file, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("open config: %w", err)
 	}
-	defer file.Close()
 
 	var cfg Config
-	dec := yaml.NewDecoder(file)
+	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
+	var raw struct {
+		Telegram struct {
+			MaxImageBytes *int64 `yaml:"maxImageBytes"`
+		} `yaml:"telegram"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("decode config: %w", err)
+	}
+	cfg.Telegram.maxImageBytesConfigured = raw.Telegram.MaxImageBytes != nil
 	configDir := filepath.Dir(path)
 	if err := cfg.normalize(configDir, getenv); err != nil {
 		return nil, err
@@ -147,6 +161,9 @@ func (c *Config) normalize(configDir string, getenv func(string) string) error {
 	}
 	if c.Telegram.Token == "" && c.Telegram.TokenEnv != "" {
 		c.Telegram.Token = strings.TrimSpace(getenv(c.Telegram.TokenEnv))
+	}
+	if c.Telegram.MaxImageBytes == 0 && !c.Telegram.maxImageBytesConfigured {
+		c.Telegram.MaxImageBytes = DefaultMaxImageBytes
 	}
 
 	if c.Google.SpreadsheetIDEnv == "" && c.Google.SpreadsheetID == "" {
@@ -272,6 +289,9 @@ func (c *Config) normalizeAI(getenv func(string) string) {
 	if c.AI.RequestTimeout == 0 {
 		c.AI.RequestTimeout = DefaultAITimeout
 	}
+	if c.AI.ImageModel == "" {
+		c.AI.ImageModel = c.AI.Model
+	}
 }
 
 func (c *Config) resolveGoogleCredentialSource(getenv func(string) string) error {
@@ -346,6 +366,9 @@ func (c Config) Validate() error {
 	if c.App.MaxOutputRunes < 1 {
 		errs = append(errs, errors.New("app.maxOutputRunes must be positive"))
 	}
+	if c.Telegram.MaxImageBytes <= 0 {
+		errs = append(errs, errors.New("telegram.maxImageBytes must be positive"))
+	}
 	if c.AI.RequestTimeout <= 0 {
 		errs = append(errs, errors.New("ai.requestTimeout must be positive"))
 	}
@@ -359,6 +382,9 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.AI.Model) == "" {
 		errs = append(errs, errors.New("ai.model is required"))
+	}
+	if strings.TrimSpace(c.AI.ImageModel) == "" {
+		errs = append(errs, errors.New("ai.imageModel is required"))
 	}
 	if strings.TrimSpace(c.AI.BaseURL) == "" {
 		errs = append(errs, errors.New("ai.baseURL is required"))

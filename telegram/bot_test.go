@@ -53,6 +53,10 @@ func (b *recordingBot) Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, err
 	return &tgbotapi.APIResponse{Ok: true}, nil
 }
 
+func (b *recordingBot) GetFileDirectURL(string) (string, error) {
+	return "", errors.New("not configured")
+}
+
 func (b *recordingBot) GetUpdates(config tgbotapi.UpdateConfig) ([]tgbotapi.Update, error) {
 	b.updateCfg = config
 	if b.updateErr != nil {
@@ -110,9 +114,13 @@ func TestMessengerAdapterAnswerCallback(t *testing.T) {
 }
 
 func TestConvertUpdateMessageAndCallback(t *testing.T) {
-	msgUpdate, ok := convertUpdate(tgbotapi.Update{UpdateID: 9, Message: &tgbotapi.Message{Chat: &tgbotapi.Chat{ID: 42}, From: &tgbotapi.User{ID: 42}, Text: "hello"}})
-	if !ok || msgUpdate.ID != 9 || msgUpdate.Message == nil || msgUpdate.Message.Text != "hello" {
+	msgUpdate, ok := convertUpdate(tgbotapi.Update{UpdateID: 9, Message: &tgbotapi.Message{Chat: &tgbotapi.Chat{ID: 42}, From: &tgbotapi.User{ID: 42}, Text: "hello", Caption: "receipt", Photo: []tgbotapi.PhotoSize{{FileID: "small", Width: 10, Height: 10, FileSize: 10}, {FileID: "large", Width: 20, Height: 20, FileSize: 5}}}})
+	if !ok || msgUpdate.ID != 9 || msgUpdate.Message == nil || msgUpdate.Message.Text != "hello" || msgUpdate.Message.Caption != "receipt" || msgUpdate.Message.Image == nil || msgUpdate.Message.Image.FileID != "large" {
 		t.Fatalf("message update = %#v ok=%v", msgUpdate, ok)
+	}
+	docUpdate, ok := convertUpdate(tgbotapi.Update{UpdateID: 11, Message: &tgbotapi.Message{Chat: &tgbotapi.Chat{ID: 42}, From: &tgbotapi.User{ID: 42}, Document: &tgbotapi.Document{FileID: "document", FileSize: 123, MimeType: "image/png"}, MediaGroupID: "album"}})
+	if !ok || docUpdate.Message == nil || docUpdate.Message.Image == nil || docUpdate.Message.Image.FileID != "document" || docUpdate.Message.Image.DeclaredSize != 123 || docUpdate.Message.MediaGroupID != "album" {
+		t.Fatalf("document update = %#v ok=%v", docUpdate, ok)
 	}
 	cbUpdate, ok := convertUpdate(tgbotapi.Update{UpdateID: 10, CallbackQuery: &tgbotapi.CallbackQuery{ID: "cb", From: &tgbotapi.User{ID: 42}, Message: &tgbotapi.Message{MessageID: 5, Chat: &tgbotapi.Chat{ID: 42}}, Data: callbackSummary}})
 	if !ok || cbUpdate.ID != 10 || cbUpdate.Callback == nil || cbUpdate.Callback.Data != callbackSummary || cbUpdate.Callback.MessageID != 5 {

@@ -42,11 +42,14 @@ func (f *fakeLedger) MonthlySummary(_ context.Context, year int, month time.Mont
 }
 
 type fakeAI struct {
-	parseCalls   int
-	parseTx      domain.Transaction
-	parseErr     error
-	confirmCalls int
-	summaryCalls int
+	parseCalls      int
+	parseTx         domain.Transaction
+	parseErr        error
+	imageParseCalls int
+	imageTx         domain.Transaction
+	imageErr        error
+	confirmCalls    int
+	summaryCalls    int
 }
 
 func (f *fakeAI) ParseTransaction(context.Context, string) (domain.Transaction, error) {
@@ -58,6 +61,17 @@ func (f *fakeAI) ParseTransaction(context.Context, string) (domain.Transaction, 
 		return domain.Transaction{Type: domain.TransactionExpense, Category: "food", Note: "pizza", Amount: 150000}, nil
 	}
 	return f.parseTx, nil
+}
+
+func (f *fakeAI) ParseImageTransaction(_ context.Context, _ string, _ string, _ []byte) (domain.Transaction, error) {
+	f.imageParseCalls++
+	if f.imageErr != nil {
+		return domain.Transaction{}, f.imageErr
+	}
+	if f.imageTx.Type == "" {
+		return domain.Transaction{Type: domain.TransactionExpense, Category: "food", Note: "receipt", Amount: 150000}, nil
+	}
+	return f.imageTx, nil
 }
 
 func (f *fakeAI) Confirmation(context.Context, domain.Transaction, bool) (string, error) {
@@ -151,6 +165,93 @@ func TestRecordDuplicateAndLedgerError(t *testing.T) {
 	res, err = svc.Record(context.Background(), 1, "ăn tối 150k")
 	if err == nil || !strings.Contains(res.Text, "Không lưu được") || strings.Contains(res.Text, "✅") {
 		t.Fatalf("error result=%#v err=%v", res, err)
+	}
+}
+
+func TestImageConfirmationLifecycle(t *testing.T) {
+	ledger := &fakeLedger{}
+	ai := &fakeAI{imageTx: domain.Transaction{Type: domain.TransactionIncome, Category: "income", Note: "transfer", Amount: 200000}}
+	now := time.Date(2026, 7, 18, 23, 0, 0, 0, time.UTC)
+	clock := ClockFunc(func() time.Time { return now })
+	svc := mustService(t, ledger, ai, nil, clock)
+
+	prepared, err := svc.PrepareImage(context.Background(), 99, ImageInput{Caption: "sensitive", MIMEType: "image/jpeg", Data: []byte{1}})
+	if err != nil || prepared.Token == "" || len(prepared.Token) > 64 || ledger.appendCalls != 0 || ai.imageParseCalls != 1 || !strings.Contains(prepared.Text, "200.000") {
+		t.Fatalf("prepared=%#v err=%v ledger=%d imageCalls=%d", prepared, err, ledger.appendCalls, ai.imageParseCalls)
+	}
+	result, err := svc.ConfirmImage(context.Background(), prepared.Token)
+	if err != nil || !result.Parsed || ledger.appendCalls != 1 {
+		t.Fatalf("result=%#v err=%v ledger=%d", result, err, ledger.appendCalls)
+	}
+	tx := ledger.appended[0]
+	if tx.SourceUpdateID != 99 || tx.Date.Format("2006-01-02") != "2026-07-19" || tx.OriginalMessage != "" || tx.Content() != "income transfer" {
+		t.Fatalf("confirmed tx=%#v", tx)
+	}
+	result, err = svc.ConfirmImage(context.Background(), prepared.Token)
+	if err != nil || ledger.appendCalls != 1 || !strings.Contains(result.Text, "không còn hiệu lực") {
+		t.Fatalf("reused result=%#v err=%v ledger=%d", result, err, ledger.appendCalls)
+	}
+}
+
+func TestImageConfirmationCancellationExpiryAndRetry(t *testing.T) {
+	ledger := &fakeLedger{}
+	ai := &fakeAI{}
+	now := time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC)
+	clock := ClockFunc(func() time.Time { return now })
+	svc := mustService(t, ledger, ai, nil, clock)
+
+	prepared, err := svc.PrepareImage(context.Background(), 1, ImageInput{MIMEType: "image/png", Data: []byte{1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := svc.CancelImage(prepared.Token); !strings.Contains(result.Text, "Đã hủy") || ledger.appendCalls != 0 {
+		t.Fatalf("cancel=%#v ledger=%d", result, ledger.appendCalls)
+	}
+	if result, err := svc.ConfirmImage(context.Background(), prepared.Token); err != nil || ledger.appendCalls != 0 || !strings.Contains(result.Text, "không còn hiệu lực") {
+		t.Fatalf("cancelled confirm=%#v err=%v ledger=%d", result, err, ledger.appendCalls)
+	}
+
+	prepared, err = svc.PrepareImage(context.Background(), 2, ImageInput{MIMEType: "image/png", Data: []byte{1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(pendingImageTTL)
+	if result, err := svc.ConfirmImage(context.Background(), prepared.Token); err != nil || ledger.appendCalls != 0 || !strings.Contains(result.Text, "không còn hiệu lực") {
+		t.Fatalf("expired confirm=%#v err=%v ledger=%d", result, err, ledger.appendCalls)
+	}
+
+	now = now.Add(-pendingImageTTL)
+	prepared, err = svc.PrepareImage(context.Background(), 3, ImageInput{MIMEType: "image/png", Data: []byte{1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger.appendErr = errors.New("sheets down")
+	if _, err := svc.ConfirmImage(context.Background(), prepared.Token); err == nil || ledger.appendCalls != 1 {
+		t.Fatalf("retryable confirm err=%v calls=%d", err, ledger.appendCalls)
+	}
+	ledger.appendErr = nil
+	if _, err := svc.ConfirmImage(context.Background(), prepared.Token); err != nil || ledger.appendCalls != 2 {
+		t.Fatalf("retry err=%v calls=%d", err, ledger.appendCalls)
+	}
+}
+
+func TestImagePreparationRejectsInvalidOutputAndBoundsPendingState(t *testing.T) {
+	ledger := &fakeLedger{}
+	ai := &fakeAI{imageErr: errors.New("ambiguous")}
+	svc := mustService(t, ledger, ai, nil, fixedClock())
+	if prepared, err := svc.PrepareImage(context.Background(), 1, ImageInput{MIMEType: "image/jpeg", Data: []byte{1}}); err == nil || prepared.Token != "" || len(svc.pendingImages) != 0 || ledger.appendCalls != 0 {
+		t.Fatalf("prepared=%#v err=%v pending=%d ledger=%d", prepared, err, len(svc.pendingImages), ledger.appendCalls)
+	}
+
+	ai.imageErr = nil
+	for i := 0; i < maxPendingImage; i++ {
+		prepared, err := svc.PrepareImage(context.Background(), i+1, ImageInput{MIMEType: "image/jpeg", Data: []byte{1}})
+		if err != nil || prepared.Token == "" {
+			t.Fatalf("prepare %d = %#v, %v", i, prepared, err)
+		}
+	}
+	if prepared, err := svc.PrepareImage(context.Background(), 99, ImageInput{MIMEType: "image/jpeg", Data: []byte{1}}); err == nil || prepared.Token != "" || len(svc.pendingImages) != maxPendingImage {
+		t.Fatalf("overflow prepared=%#v err=%v pending=%d", prepared, err, len(svc.pendingImages))
 	}
 }
 

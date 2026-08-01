@@ -63,12 +63,14 @@ func run(args []string, logWriter io.Writer, getenv func(string) string) error {
 		logger.Info("configuration validated",
 			"timezone", cfg.App.Timezone,
 			"telegram_allowed_user_id", cfg.Telegram.AllowedUserID,
+			"telegram_max_image_bytes", cfg.Telegram.MaxImageBytes,
 			"google_spreadsheet_configured", cfg.Google.SpreadsheetID != "",
 			"google_credential_kind", cfg.Google.CredentialSource.Kind,
 			"google_metadata_sheet", cfg.Google.MetadataSheet,
 			"ai_enabled", cfg.AI.Enabled,
 			"ai_provider", cfg.AI.Provider,
 			"ai_base_url_configured", cfg.AI.BaseURL != "",
+			"ai_image_model_configured", cfg.AI.ImageModel != "",
 			"ai_api_key_configured", cfg.AI.APIKey != "" || cfg.AI.OpenRouterAPIKey != "",
 			"update_timeout", cfg.App.UpdateTimeout.String(),
 		)
@@ -115,7 +117,11 @@ func runLive(ctx context.Context, cfg *config.Config, guard authz.Authorizer, lo
 	if err != nil {
 		return err
 	}
-	handler := telegram.NewHandler(telegram.NewMessengerAdapter(bot), money, guard, logger)
+	imageFetcher, err := telegram.NewTelegramImageFetcherForBot(bot, cfg.Telegram.MaxImageBytes)
+	if err != nil {
+		return err
+	}
+	handler := telegram.NewHandler(telegram.NewMessengerAdapter(bot), money, guard, logger, telegram.WithImageFetcher(imageFetcher))
 	logger.Info("starting telegram polling", "telegram_allowed_user_id", cfg.Telegram.AllowedUserID)
 	return pollTelegram(ctx, bot, handler, logger, cfg.App.UpdateTimeout)
 }

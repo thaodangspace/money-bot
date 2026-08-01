@@ -23,6 +23,7 @@ func NewFromConfig(cfg config.AIConfig) (*Client, error) {
 		Provider:       provider,
 		APIKey:         apiKey,
 		Model:          model,
+		ImageModel:     cfg.ImageModel,
 		BaseURL:        baseURL,
 		Referer:        cfg.OpenRouterReferer,
 		AppName:        cfg.OpenRouterAppName,

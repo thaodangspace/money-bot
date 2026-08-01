@@ -43,7 +43,7 @@ ai:
 		t.Fatalf("run() error = %v\noutput:\n%s", err, out.String())
 	}
 	text := out.String()
-	if !strings.Contains(text, "configuration validated") || !strings.Contains(text, "google_credential_kind=legacy_env") || !strings.Contains(text, "ai_enabled=true") {
+	if !strings.Contains(text, "configuration validated") || !strings.Contains(text, "google_credential_kind=legacy_env") || !strings.Contains(text, "ai_enabled=true") || !strings.Contains(text, "telegram_max_image_bytes=5242880") || !strings.Contains(text, "ai_image_model_configured=true") {
 		t.Fatalf("dry-run output = %q", text)
 	}
 	for _, secret := range []string{"telegram-secret", "private-key-secret", "openrouter-secret", "sheet-secret-ish"} {
@@ -191,6 +191,7 @@ func (fakeBot) Request(tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
 	return &tgbotapi.APIResponse{Ok: true}, nil
 }
 func (fakeBot) GetUpdates(tgbotapi.UpdateConfig) ([]tgbotapi.Update, error) { return nil, nil }
+func (fakeBot) GetFileDirectURL(string) (string, error)                     { return "", nil }
 
 func writeMainConfig(t *testing.T, path, content string) {
 	t.Helper()

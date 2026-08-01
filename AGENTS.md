@@ -30,9 +30,9 @@ go run ./cmd/money-bot --config ./config.yaml
 - `domain`: transport-neutral transaction and monthly summary types.
 - `parser`: deterministic Vietnamese transaction and current-month summary intent parsing.
 - `sheets`: Google Sheets repository, monthly worksheet creation, flat row writes, hidden metadata/idempotency, legacy reads, and summaries.
-- `ai`: optional OpenRouter client and strict AI JSON validation.
-- `service`: deterministic-first business orchestration and Vietnamese response formatting.
-- `telegram`: Telegram Bot API adapter, Markdown escaping/fallback, command/callback handlers, chunking, and sequential polling.
+- `ai`: OpenAI-compatible LM Studio/OpenRouter client, strict AI JSON validation, and bounded multimodal image extraction.
+- `service`: business orchestration, Vietnamese response formatting, and bounded process-local image confirmation state.
+- `telegram`: Telegram Bot API adapter, bounded byte-verified image acquisition, Markdown escaping/fallback, command/callback handlers, chunking, and sequential polling.
 
 ## Spreadsheet Invariants
 
@@ -50,14 +50,17 @@ go run ./cmd/money-bot --config ./config.yaml
 - Unauthorized updates must return before parser, AI, or Google calls.
 - Run only one bot instance per spreadsheet; multiple bot instances can race Google Sheets read-before-write idempotency checks.
 - Do not log Telegram tokens, Google private keys, credential JSON, OpenRouter API keys, Authorization headers, or full credential contents.
-- AI is optional OpenRouter only. Deterministic parses never call AI, and AI never supplies canonical summary arithmetic.
+- AI is required for free-text parsing. Text uses `ai.model`; images use `ai.imageModel` (defaulting to that text model) and require vision support. AI never supplies canonical summary arithmetic.
+- Image media is accepted only from the authorized private user, is limited by `telegram.maxImageBytes` (5 MiB default), byte-verified as JPEG/PNG/WebP, held in memory only, and must be explicitly confirmed before a Sheets write.
+- Image pending confirmations are process-local, expire after 10 minutes, cap at 16, and use opaque random callback tokens; writes use the original image update ID.
+- Never log or persist image bytes, Telegram file URLs/IDs, captions, raw OCR/model payloads, or bank details. OpenRouter receives image content remotely; LM Studio may keep it local.
 - Timezone defaults to `Asia/Ho_Chi_Minh`; transaction date and target sheet must use the configured location.
 
 ## Testing Notes
 
 - Keep core behavior behind fakes/interfaces; default tests must not require live Telegram, Google, or OpenRouter credentials.
 - `sheets` has optional live integration scaffolding gated by `MONEY_BOT_SHEETS_INTEGRATION=1`, an explicit test spreadsheet ID, and a write confirmation flag.
-- Add tests when changing parsing, row schema, metadata/idempotency, legacy summary reads, Telegram authorization/routing, or OpenRouter validation.
+- Add tests when changing parsing, multimodal request construction, pending-image state, row schema, metadata/idempotency, legacy summary reads, Telegram authorization/routing, or OpenRouter validation.
 
 ## Dependency Notes
 

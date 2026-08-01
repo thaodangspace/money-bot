@@ -25,6 +25,18 @@ func duplicateText(tx domain.Transaction) string {
 	return fmt.Sprintf("ℹ️ Giao dịch này đã được ghi trước đó: %s - %s ₫.", boundText(tx.Content(), 300), formatDong(tx.Amount))
 }
 
+func imagePreviewText(tx domain.Transaction) string {
+	kind := "chi tiêu"
+	if tx.Type == domain.TransactionIncome {
+		kind = "thu nhập"
+	}
+	return fmt.Sprintf("🖼️ Mình đọc được %s: %s - %s ₫.\nVui lòng kiểm tra trước khi lưu.", kind, boundText(tx.Content(), 300), formatDong(tx.Amount))
+}
+
+func imageConfirmationUnavailableText() string {
+	return "⌛ Xác nhận ảnh không còn hiệu lực. Vui lòng gửi lại ảnh."
+}
+
 func usageText() string {
 	return strings.Join([]string{
 		"🤷 Mình chưa hiểu giao dịch này.",

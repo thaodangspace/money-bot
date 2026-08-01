@@ -16,6 +16,10 @@ type TransactionParser interface {
 	ParseTransaction(ctx context.Context, message string) (domain.Transaction, error)
 }
 
+type ImageTransactionParser interface {
+	ParseImageTransaction(ctx context.Context, caption, mimeType string, image []byte) (domain.Transaction, error)
+}
+
 type Commentator interface {
 	Confirmation(ctx context.Context, tx domain.Transaction, usedAI bool) (string, error)
 	SummaryCommentary(ctx context.Context, summary domain.MonthlySummary) (string, error)

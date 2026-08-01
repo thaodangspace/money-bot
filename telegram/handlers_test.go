@@ -32,15 +32,27 @@ func (f *fakeMessenger) AnswerCallback(_ context.Context, _ string, text string)
 }
 
 type fakeService struct {
-	recordCalls   int
-	recordID      int
-	recordText    string
-	recordResult  service.Result
-	recordErr     error
-	summaryCalls  int
-	summaryQuery  string
-	summaryResult service.Result
-	summaryErr    error
+	recordCalls        int
+	recordID           int
+	recordText         string
+	recordResult       service.Result
+	recordErr          error
+	prepareImageCalls  int
+	prepareImageID     int
+	prepareImageInput  service.ImageInput
+	prepareImageResult service.ImagePreparation
+	prepareImageErr    error
+	confirmImageCalls  int
+	confirmImageToken  string
+	confirmImageResult service.Result
+	confirmImageErr    error
+	cancelImageCalls   int
+	cancelImageToken   string
+	cancelImageResult  service.Result
+	summaryCalls       int
+	summaryQuery       string
+	summaryResult      service.Result
+	summaryErr         error
 }
 
 func (f *fakeService) Record(_ context.Context, updateID int, text string) (service.Result, error) {
@@ -51,6 +63,34 @@ func (f *fakeService) Record(_ context.Context, updateID int, text string) (serv
 		f.recordResult.Text = "recorded"
 	}
 	return f.recordResult, f.recordErr
+}
+
+func (f *fakeService) PrepareImage(_ context.Context, updateID int, input service.ImageInput) (service.ImagePreparation, error) {
+	f.prepareImageCalls++
+	f.prepareImageID = updateID
+	f.prepareImageInput = input
+	if f.prepareImageResult.Text == "" {
+		f.prepareImageResult = service.ImagePreparation{Text: "preview", Token: "opaque-token"}
+	}
+	return f.prepareImageResult, f.prepareImageErr
+}
+
+func (f *fakeService) ConfirmImage(_ context.Context, token string) (service.Result, error) {
+	f.confirmImageCalls++
+	f.confirmImageToken = token
+	if f.confirmImageResult.Text == "" {
+		f.confirmImageResult.Text = "confirmed"
+	}
+	return f.confirmImageResult, f.confirmImageErr
+}
+
+func (f *fakeService) CancelImage(token string) service.Result {
+	f.cancelImageCalls++
+	f.cancelImageToken = token
+	if f.cancelImageResult.Text == "" {
+		f.cancelImageResult.Text = "cancelled"
+	}
+	return f.cancelImageResult
 }
 
 func (f *fakeService) Summary(_ context.Context, query string) (service.Result, error) {
@@ -64,6 +104,17 @@ func (f *fakeService) Summary(_ context.Context, query string) (service.Result, 
 
 func (f *fakeService) IsSummaryIntent(text string) bool {
 	return strings.Contains(strings.ToLower(text), "chi tiêu tháng này")
+}
+
+type fakeImageFetcher struct {
+	calls int
+	image FetchedImage
+	err   error
+}
+
+func (f *fakeImageFetcher) FetchImage(_ context.Context, _ ImageReference) (FetchedImage, error) {
+	f.calls++
+	return f.image, f.err
 }
 
 func setupHandler() (*Handler, *fakeMessenger, *fakeService) {
@@ -144,6 +195,54 @@ func TestOrdinaryMessageAndSummaryIntent(t *testing.T) {
 	}
 	if svc.summaryCalls != 1 || svc.summaryQuery != "chi tiêu tháng này" || len(m.sends) != 2 || m.sends[1].text != "summary" {
 		t.Fatalf("summary svc=%#v sends=%#v", svc, m.sends)
+	}
+}
+
+func TestAuthorizedImagePreviewsAndCallbacks(t *testing.T) {
+	m := &fakeMessenger{}
+	svc := &fakeService{}
+	fetcher := &fakeImageFetcher{image: FetchedImage{MIMEType: "image/png", Data: []byte{1, 2}}}
+	h := NewHandler(m, svc, authz.New(42), nil, WithImageFetcher(fetcher))
+	if err := h.HandleUpdate(context.Background(), Update{ID: 9, Message: &Message{ChatID: 42, UserID: 42, Caption: "receipt", Image: &ImageReference{FileID: "file"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if fetcher.calls != 1 || svc.prepareImageCalls != 1 || svc.prepareImageID != 9 || svc.prepareImageInput.Caption != "receipt" || len(m.sends) != 1 {
+		t.Fatalf("fetches=%d prepares=%d input=%#v sends=%#v", fetcher.calls, svc.prepareImageCalls, svc.prepareImageInput, m.sends)
+	}
+	confirm := callbackImageConfirmPrefix + "opaque-token"
+	if !keyboardHas(m.sends[0].keyboard, "Xác nhận", confirm) || !keyboardHas(m.sends[0].keyboard, "Hủy", callbackImageCancelPrefix+"opaque-token") || len(confirm) > 64 {
+		t.Fatalf("keyboard=%#v", m.sends[0].keyboard)
+	}
+	if err := h.HandleUpdate(context.Background(), Update{Callback: &Callback{ID: "cb", ChatID: 42, UserID: 42, Data: confirm}}); err != nil {
+		t.Fatal(err)
+	}
+	if svc.confirmImageCalls != 1 || svc.confirmImageToken != "opaque-token" || len(m.callbacks) != 1 || m.callbacks[0] != "Đang lưu" {
+		t.Fatalf("confirm calls=%d token=%q callbacks=%#v", svc.confirmImageCalls, svc.confirmImageToken, m.callbacks)
+	}
+	if err := h.HandleUpdate(context.Background(), Update{Callback: &Callback{ID: "cb2", ChatID: 42, UserID: 42, Data: callbackImageCancelPrefix + "opaque-token"}}); err != nil {
+		t.Fatal(err)
+	}
+	if svc.cancelImageCalls != 1 || svc.cancelImageToken != "opaque-token" {
+		t.Fatalf("cancel calls=%d token=%q", svc.cancelImageCalls, svc.cancelImageToken)
+	}
+}
+
+func TestUnauthorizedAndAlbumImagesDoNotFetch(t *testing.T) {
+	m := &fakeMessenger{}
+	svc := &fakeService{}
+	fetcher := &fakeImageFetcher{image: FetchedImage{MIMEType: "image/png", Data: []byte{1}}}
+	h := NewHandler(m, svc, authz.New(42), nil, WithImageFetcher(fetcher))
+	if err := h.HandleUpdate(context.Background(), Update{ID: 1, Message: &Message{ChatID: 7, UserID: 7, Image: &ImageReference{FileID: "file"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if fetcher.calls != 0 || svc.prepareImageCalls != 0 {
+		t.Fatalf("unauthorized fetches=%d prepares=%d", fetcher.calls, svc.prepareImageCalls)
+	}
+	if err := h.HandleUpdate(context.Background(), Update{ID: 2, Message: &Message{ChatID: 42, UserID: 42, MediaGroupID: "album", Image: &ImageReference{FileID: "file"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if fetcher.calls != 0 || svc.prepareImageCalls != 0 {
+		t.Fatalf("album fetches=%d prepares=%d", fetcher.calls, svc.prepareImageCalls)
 	}
 }
 

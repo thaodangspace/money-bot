@@ -26,6 +26,18 @@ type Ledger interface {
 
 type AIParser interface {
 	ParseTransaction(ctx context.Context, message string) (domain.Transaction, error)
+	ParseImageTransaction(ctx context.Context, caption, mimeType string, image []byte) (domain.Transaction, error)
+}
+
+type ImageInput struct {
+	Caption  string
+	MIMEType string
+	Data     []byte
+}
+
+type ImagePreparation struct {
+	Text  string
+	Token string
 }
 
 type Commentator interface {

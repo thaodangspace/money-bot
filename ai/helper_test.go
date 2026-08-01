@@ -69,8 +69,18 @@ func TestNewFromConfigSupportsLMStudioWithoutAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromConfig(lmstudio) error = %v", err)
 	}
-	if client == nil {
-		t.Fatal("client = nil")
+	if client == nil || client.model != "local-model" || client.imageModel != "local-model" {
+		t.Fatalf("client = %#v", client)
+	}
+}
+
+func TestNewFromConfigPreservesSeparateImageModel(t *testing.T) {
+	client, err := NewFromConfig(config.AIConfig{Provider: config.AIProviderOpenRouter, APIKey: "key", Model: "text-model", ImageModel: "vision-model", BaseURL: "https://example.com", RequestTimeout: time.Second})
+	if err != nil {
+		t.Fatalf("NewFromConfig() error = %v", err)
+	}
+	if client.model != "text-model" || client.imageModel != "vision-model" {
+		t.Fatalf("models = text %q image %q", client.model, client.imageModel)
 	}
 }
 
