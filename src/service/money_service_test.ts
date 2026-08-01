@@ -6,6 +6,7 @@ import {
 import { MoneyService } from './money_service.ts';
 import type { AIParser, AppendBatchResult, Ledger } from './types.ts';
 import type { MonthlySummary } from '../domain/summary.ts';
+import type { ImageTransactionExtraction } from '../adapters/ai/image_types.ts';
 
 class FakeAI implements AIParser {
   parseTransaction(): Promise<Transaction> {
@@ -17,12 +18,16 @@ class FakeAI implements AIParser {
     });
   }
 
-  parseImageTransaction(): Promise<Transaction> {
+  parseImageTransactions(): Promise<ImageTransactionExtraction> {
     return Promise.resolve({
-      category: 'salary',
-      note: 'transfer',
-      amount: 2_000_000,
-      type: TRANSACTION_INCOME,
+      kind: 'single_transfer',
+      detected: 1,
+      transactions: [{
+        category: 'salary',
+        note: 'transfer',
+        amount: 2_000_000,
+        type: TRANSACTION_INCOME,
+      }],
     });
   }
 }

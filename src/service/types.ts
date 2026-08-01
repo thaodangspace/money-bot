@@ -1,8 +1,8 @@
 import type { MonthlySummary } from '../domain/summary.ts';
 import type { Transaction } from '../domain/transaction.ts';
+import type { ImageTransactionExtraction } from '../adapters/ai/image_types.ts';
 
 export type AppendStatus = 'written' | 'duplicate';
-
 export interface AppendBatchResult {
   status: AppendStatus;
   targetSheets: string[];
@@ -19,12 +19,12 @@ export interface Ledger {
 
 export interface AIParser {
   parseTransaction(signal: AbortSignal, message: string): Promise<Transaction>;
-  parseImageTransaction(
+  parseImageTransactions(
     signal: AbortSignal,
     caption: string,
     mimeType: string,
     image: Uint8Array,
-  ): Promise<Transaction>;
+  ): Promise<ImageTransactionExtraction>;
 }
 
 export interface Commentator {
@@ -37,19 +37,16 @@ export interface ImageInput {
   mimeType: string;
   data: Uint8Array;
 }
-
 export interface ImagePreparation {
   text: string;
   token: string;
 }
-
 export interface ServiceResult {
   text: string;
   parsed?: boolean;
   usedAI?: boolean;
   duplicate?: boolean;
 }
-
 export interface ServiceOptions {
   timeZone?: string;
   clock?: () => Date;

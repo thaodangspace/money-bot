@@ -1,7 +1,8 @@
 import type { Transaction } from '../../domain/transaction.ts';
 import type { AIParser, Commentator } from '../../service/types.ts';
-import { parseTransactionJSON } from './validation.ts';
-import { IMAGE_TRANSACTION_SYSTEM_PROMPT, TRANSACTION_SYSTEM_PROMPT } from './prompts.ts';
+import { parseImageTransactionsJSON, parseTransactionJSON } from './validation.ts';
+import { IMAGE_TRANSACTIONS_SYSTEM_PROMPT, TRANSACTION_SYSTEM_PROMPT } from './prompts.ts';
+import type { ImageTransactionExtraction } from './image_types.ts';
 
 const DEFAULT_MAX_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -87,12 +88,12 @@ export class AIClient implements AIParser, Commentator {
     return parseTransactionJSON(content);
   }
 
-  async parseImageTransaction(
+  async parseImageTransactions(
     signal: AbortSignal,
     caption: string,
     mimeType: string,
     image: Uint8Array,
-  ): Promise<Transaction> {
+  ): Promise<ImageTransactionExtraction> {
     if (!isSupportedImageMime(mimeType) || image.byteLength === 0) {
       throw new Error('unsupported image input');
     }
@@ -104,7 +105,7 @@ export class AIClient implements AIParser, Commentator {
     const content = await this.#chat(
       signal,
       [
-        { role: 'system', content: IMAGE_TRANSACTION_SYSTEM_PROMPT },
+        { role: 'system', content: IMAGE_TRANSACTIONS_SYSTEM_PROMPT },
         {
           role: 'user',
           content: [
@@ -116,7 +117,21 @@ export class AIClient implements AIParser, Commentator {
       0,
       this.#imageModel,
     );
-    return parseTransactionJSON(content);
+    return parseImageTransactionsJSON(content);
+  }
+
+  /** Backward-compatible helper for callers that only support single-image extraction. */
+  async parseImageTransaction(
+    signal: AbortSignal,
+    caption: string,
+    mimeType: string,
+    image: Uint8Array,
+  ): Promise<Transaction> {
+    const extraction = await this.parseImageTransactions(signal, caption, mimeType, image);
+    if (extraction.transactions.length !== 1) {
+      throw new Error('image contains multiple transactions');
+    }
+    return extraction.transactions[0]!;
   }
 
   async confirmation(

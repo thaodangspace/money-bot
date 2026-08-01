@@ -1,15 +1,21 @@
-import { parseMonthlySummaryPeriod } from '../parser/summary_period.ts';
 import { detectMonthlySummaryIntent } from '../parser/intent.ts';
+import { parseMonthlySummaryPeriod } from '../parser/summary_period.ts';
 import { currentPlainDate } from '../shared/calendar.ts';
 import { type Clock, systemClock } from '../shared/runtime.ts';
 import type { Transaction } from '../domain/transaction.ts';
 import { validateTransaction } from '../domain/transaction.ts';
 import {
+  type ImageTransactionExtraction,
+  MAX_IMAGE_TRANSACTIONS,
+} from '../adapters/ai/image_types.ts';
+import {
   boundText,
+  duplicateBatchText,
   duplicateText,
   formatSummary,
   imageConfirmationUnavailableText,
-  imagePreviewText,
+  imagePreviewTextBatch,
+  successBatchText,
   successText,
   summaryUsageText,
   usageText,
@@ -47,12 +53,9 @@ export class MoneyService {
   }
 
   async record(signal: AbortSignal, updateId: number, text: string): Promise<ServiceResult> {
-    if (updateId <= 0) {
-      throw new Error('telegram update ID is required');
-    }
+    if (updateId <= 0) throw new Error('telegram update ID is required');
     text = text.trim();
     if (!text) return { text: usageText() };
-
     let transaction: Transaction;
     try {
       transaction = await this.#ai.parseTransaction(signal, text);
@@ -60,11 +63,9 @@ export class MoneyService {
     } catch {
       return { text: usageText() };
     }
-
-    const now = this.#clock.now();
     transaction = {
       ...transaction,
-      date: currentPlainDate(now, this.#timeZone),
+      date: currentPlainDate(this.#clock.now(), this.#timeZone),
       sourceUpdateId: updateId,
       originalMessage: text,
     };
@@ -72,15 +73,12 @@ export class MoneyService {
     if (result.status === 'duplicate') {
       return { text: duplicateText(transaction), parsed: true, usedAI: true, duplicate: true };
     }
-
     let response = successText(transaction, true);
     if (this.#comments) {
       try {
         const comment = (await this.#comments.confirmation(signal, transaction, true)).trim();
         if (comment) response += `\n${boundText(comment, 240)}`;
-      } catch {
-        // Commentary is best effort and must not turn a successful write into an error.
-      }
+      } catch { /* best effort */ }
     }
     return { text: response, parsed: true, usedAI: true };
   }
@@ -94,43 +92,56 @@ export class MoneyService {
     if (!input.mimeType.trim() || input.data.byteLength === 0) {
       throw new Error('image input is required');
     }
-
-    let transaction: Transaction;
+    let extraction: ImageTransactionExtraction;
     try {
-      transaction = await this.#ai.parseImageTransaction(
+      extraction = await this.#ai.parseImageTransactions(
         signal,
         input.caption,
         input.mimeType,
         input.data,
       );
-      validateTransaction(transaction);
+      validateImageExtraction(extraction);
     } catch (error) {
       throw new Error('image transaction could not be extracted', { cause: error });
     }
 
-    const token = this.#pending.add(transaction, updateId);
+    const today = currentPlainDate(this.#clock.now(), this.#timeZone);
+    if (
+      extraction.kind === 'transaction_list' &&
+      extraction.transactions.some((transaction) => !transaction.date)
+    ) {
+      throw new Error('transaction list entry date is required');
+    }
+    const transactions = extraction.transactions.map((transaction) => ({
+      ...transaction,
+      date: transaction.date ?? today,
+      sourceUpdateId: updateId,
+      originalMessage: '',
+    }));
+    if (transactions.some((transaction) => transaction.date! > today)) {
+      throw new Error('image transaction date is in the future');
+    }
+    const token = this.#pending.add(transactions, updateId);
     if (!token) throw new Error('pending image capacity reached');
-    return { text: imagePreviewText(transaction), token };
+    return { text: imagePreviewTextBatch(transactions), token };
   }
 
   async confirmImage(signal: AbortSignal, token: string): Promise<ServiceResult> {
     const pending = this.#pending.beginConfirmation(token);
     if (!pending) return { text: imageConfirmationUnavailableText() };
-
-    const transaction: Transaction = {
-      ...pending.transaction,
-      date: currentPlainDate(this.#clock.now(), this.#timeZone),
-      sourceUpdateId: pending.updateId,
-    };
     try {
-      const result = await this.#ledger.appendTransactions(signal, pending.updateId, [transaction]);
+      const result = await this.#ledger.appendTransactions(
+        signal,
+        pending.updateId,
+        pending.transactions,
+      );
       if (result.status !== 'written' && result.status !== 'duplicate') {
         throw new Error(`unexpected append status: ${result.status}`);
       }
       this.#pending.complete(token);
       return result.status === 'duplicate'
-        ? { text: duplicateText(transaction), parsed: true, duplicate: true }
-        : { text: successText(transaction, false), parsed: true };
+        ? { text: duplicateBatchText(pending.transactions), parsed: true, duplicate: true }
+        : { text: successBatchText(pending.transactions), parsed: true };
     } catch (error) {
       this.#pending.releaseConfirmation(token);
       throw error;
@@ -152,9 +163,7 @@ export class MoneyService {
       try {
         const comment = (await this.#comments.summaryCommentary(signal, summary)).trim();
         if (comment) response += `\n${boundText(comment, 320)}`;
-      } catch {
-        // Commentary is best effort.
-      }
+      } catch { /* best effort */ }
     }
     return { text: response };
   }
@@ -162,6 +171,22 @@ export class MoneyService {
   get pendingImageCount(): number {
     return this.#pending.size;
   }
+}
+
+function validateImageExtraction(extraction: ImageTransactionExtraction): void {
+  if (
+    !Number.isSafeInteger(extraction.detected) || extraction.detected < 1 ||
+    extraction.detected > MAX_IMAGE_TRANSACTIONS || extraction.transactions.length < 1 ||
+    extraction.transactions.length > MAX_IMAGE_TRANSACTIONS
+  ) throw new Error('invalid image extraction count');
+  if (
+    extraction.kind !== 'transaction_list' &&
+    (extraction.detected !== 1 || extraction.transactions.length !== 1)
+  ) throw new Error('invalid single image extraction');
+  if (
+    extraction.kind === 'transaction_list' && extraction.detected !== extraction.transactions.length
+  ) throw new Error('incomplete image transaction list');
+  for (const transaction of extraction.transactions) validateTransaction(transaction);
 }
 
 export type {

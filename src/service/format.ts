@@ -16,10 +16,55 @@ export function duplicateText(transaction: Transaction): string {
 }
 
 export function imagePreviewText(transaction: Transaction): string {
-  const kind = transaction.type === TRANSACTION_INCOME ? 'thu nhập' : 'chi tiêu';
-  return `🖼️ Mình đọc được ${kind}: ${boundText(transactionContent(transaction), 300)} - ${
-    formatDong(transaction.amount)
-  } ₫.\nVui lòng kiểm tra trước khi lưu.`;
+  return imagePreviewTextBatch([transaction]);
+}
+
+export function imagePreviewTextBatch(transactions: Transaction[]): string {
+  if (transactions.length === 1) {
+    const transaction = transactions[0]!;
+    const kind = transaction.type === TRANSACTION_INCOME ? 'thu nhập' : 'chi tiêu';
+    return `🖼️ Mình đọc được ${kind}: ${boundText(transactionContent(transaction), 300)} - ${
+      formatDong(transaction.amount)
+    } ₫.\nVui lòng kiểm tra trước khi lưu.`;
+  }
+  const lines = [`🖼️ Tìm thấy ${transactions.length} giao dịch:`, ''];
+  let income = 0;
+  let expense = 0;
+  transactions.forEach((transaction, index) => {
+    const kind = transaction.type === TRANSACTION_INCOME ? 'Thu nhập' : 'Chi tiêu';
+    if (transaction.type === TRANSACTION_INCOME) income += transaction.amount;
+    else expense += transaction.amount;
+    lines.push(
+      `${index + 1}. ${displayDate(transaction.date)} · ${kind} · ${
+        boundText(transactionContent(transaction), 220)
+      } — ${formatDong(transaction.amount)} ₫`,
+    );
+  });
+  lines.push(
+    '',
+    `Tổng thu nhập: ${formatDong(income)} ₫`,
+    `Tổng chi tiêu: ${formatDong(expense)} ₫`,
+    '⚠️ Bấm xác nhận để lưu tất cả giao dịch trong danh sách.',
+  );
+  return lines.join('\n');
+}
+
+export function successBatchText(transactions: Transaction[]): string {
+  return transactions.length === 1
+    ? successText(transactions[0]!, false)
+    : `✅ Đã lưu ${transactions.length} giao dịch vào Google Sheet.`;
+}
+
+export function duplicateBatchText(transactions: Transaction[]): string {
+  return transactions.length === 1
+    ? duplicateText(transactions[0]!)
+    : `ℹ️ ${transactions.length} giao dịch này đã được ghi trước đó.`;
+}
+
+function displayDate(date: string | undefined): string {
+  if (!date) return '??/??/????';
+  const [year, month, day] = date.split('-');
+  return `${day}/${month}/${year}`;
 }
 
 export function imageConfirmationUnavailableText(): string {

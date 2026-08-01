@@ -6,6 +6,14 @@ const validModelResponse = JSON.stringify({
     message: { content: '{"type":"expense","category":"Ăn tối","amount":150000,"note":"pizza"}' },
   }],
 });
+const validImageResponse = JSON.stringify({
+  choices: [{
+    message: {
+      content:
+        '{"kind":"single_receipt","detected":1,"transactions":[{"type":"expense","category":"food","amount":150000,"note":"merchant"}]}',
+    },
+  }],
+});
 
 Deno.test('AI client builds text requests and provider headers', async () => {
   let requestURL = '';
@@ -47,7 +55,7 @@ Deno.test('AI client builds vision requests with a bounded caption and data URL'
     baseURL: 'https://example.invalid',
     fetcher: (_input, init) => {
       requestInit = init;
-      return Promise.resolve(new Response(validModelResponse));
+      return Promise.resolve(new Response(validImageResponse));
     },
   });
   await client.parseImageTransaction(

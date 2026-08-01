@@ -2,11 +2,10 @@ import { type Clock, randomToken } from '../shared/runtime.ts';
 import type { Transaction } from '../domain/transaction.ts';
 
 export interface PendingImage {
-  transaction: Transaction;
+  transactions: Transaction[];
   updateId: number;
   expiresAt: number;
 }
-
 interface PendingEntry extends PendingImage {
   confirming: boolean;
 }
@@ -28,12 +27,17 @@ export class ImagePendingStore {
     this.#token = options.token ?? randomToken;
   }
 
-  add(transaction: Transaction, updateId: number): string | undefined {
+  add(transactions: Transaction[], updateId: number): string | undefined {
     this.evictExpired();
     if (this.#entries.size >= this.#maxEntries) return undefined;
-    const token = this.#token(18);
+    let token = '';
+    for (let attempts = 0; attempts < 4; attempts++) {
+      token = this.#token(18);
+      if (!this.#entries.has(token)) break;
+    }
+    if (!token || this.#entries.has(token)) return undefined;
     this.#entries.set(token, {
-      transaction,
+      transactions: [...transactions],
       updateId,
       expiresAt: this.#clock.now().getTime() + this.#ttlMs,
       confirming: false,
@@ -46,28 +50,27 @@ export class ImagePendingStore {
     const entry = this.#entries.get(token);
     if (!entry || entry.confirming) return undefined;
     entry.confirming = true;
-    return { transaction: entry.transaction, updateId: entry.updateId, expiresAt: entry.expiresAt };
+    return {
+      transactions: [...entry.transactions],
+      updateId: entry.updateId,
+      expiresAt: entry.expiresAt,
+    };
   }
-
   releaseConfirmation(token: string): void {
     const entry = this.#entries.get(token);
     if (entry) entry.confirming = false;
   }
-
   complete(token: string): void {
     this.#entries.delete(token);
   }
-
   cancel(token: string): boolean {
     this.evictExpired();
     return this.#entries.delete(token);
   }
-
   get size(): number {
     this.evictExpired();
     return this.#entries.size;
   }
-
   private evictExpired(): void {
     const now = this.#clock.now().getTime();
     for (const [token, entry] of this.#entries) {
