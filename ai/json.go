@@ -137,7 +137,7 @@ func ParseImageTransactionsJSON(content string) (ImageTransactionExtraction, err
 			if err != nil {
 				return ImageTransactionExtraction{}, fmt.Errorf("%w: invalid date", ErrInvalidOutput)
 			}
-			if date.After(time.Now().UTC().Add(48 * time.Hour)) {
+			if calendarDateAfter(date, time.Now().UTC()) {
 				return ImageTransactionExtraction{}, fmt.Errorf("%w: future date", ErrInvalidOutput)
 			}
 			tx.Date = date
@@ -153,6 +153,18 @@ func ParseImageTransactionsJSON(content string) (ImageTransactionExtraction, err
 		transactions = append(transactions, tx)
 	}
 	return ImageTransactionExtraction{Kind: kind, Transactions: transactions, Detected: raw.Detected}, nil
+}
+
+func calendarDateAfter(value, now time.Time) bool {
+	valueYear, valueMonth, valueDay := value.Date()
+	nowYear, nowMonth, nowDay := now.Date()
+	if valueYear != nowYear {
+		return valueYear > nowYear
+	}
+	if valueMonth != nowMonth {
+		return valueMonth > nowMonth
+	}
+	return valueDay > nowDay
 }
 
 func extractSingleJSONObject(content string) ([]byte, error) {

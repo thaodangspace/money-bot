@@ -48,7 +48,7 @@ func imagePreviewTextBatch(transactions []domain.Transaction) string {
 		} else {
 			expense += tx.Amount
 		}
-		lines = append(lines, fmt.Sprintf("%d. %s · %s — %s ₫", i+1, kind, boundText(tx.Content(), 240), formatDong(tx.Amount)))
+		lines = append(lines, fmt.Sprintf("%d. %s · %s · %s — %s ₫", i+1, tx.Date.Format("02/01/2006"), kind, boundText(tx.Content(), 220), formatDong(tx.Amount)))
 	}
 	lines = append(lines, "", "Tổng thu nhập: "+formatDong(income)+" ₫", "Tổng chi tiêu: "+formatDong(expense)+" ₫", "⚠️ Bấm xác nhận để lưu tất cả giao dịch trong danh sách.")
 	return strings.Join(lines, "\n")

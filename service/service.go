@@ -16,9 +16,8 @@ import (
 )
 
 const (
-	pendingImageTTL  = 10 * time.Minute
-	maxPendingImage  = 16
-	maxImageDateSkew = 48 * time.Hour
+	pendingImageTTL = 10 * time.Minute
+	maxPendingImage = 16
 )
 
 type pendingImage struct {
@@ -45,6 +44,12 @@ func New(opts Options) (*Service, error) {
 	}
 	if opts.AI == nil {
 		return nil, errors.New("ai parser is required")
+	}
+	if !supportsLedgerAppend(opts.Ledger) {
+		return nil, errors.New("ledger append capability is required")
+	}
+	if !supportsImageParsing(opts.AI) {
+		return nil, errors.New("ai image parser capability is required")
 	}
 	loc := opts.Location
 	if loc == nil {
@@ -105,12 +110,19 @@ func (s *Service) PrepareImage(ctx context.Context, updateID int, input ImageInp
 		return ImagePreparation{Text: "❌ Mình chưa đọc được giao dịch rõ ràng từ ảnh. Vui lòng gửi ảnh đầy đủ, rõ nét hoặc thêm chú thích."}, err
 	}
 	now := s.clock.Now().In(s.location)
+	if extraction.Kind == ai.ImageExtractionList {
+		for _, tx := range extraction.Transactions {
+			if tx.Date.IsZero() {
+				return ImagePreparation{Text: "❌ Danh sách trong ảnh thiếu ngày giao dịch. Vui lòng gửi ảnh rõ hơn hoặc thêm ngày đầy đủ."}, errors.New("transaction list entry date is required")
+			}
+		}
+	}
 	transactions := append([]domain.Transaction(nil), extraction.Transactions...)
 	for i := range transactions {
 		if transactions[i].Date.IsZero() {
 			transactions[i].Date = now
 		} else {
-			transactions[i].Date = transactions[i].Date.In(s.location)
+			transactions[i].Date = calendarDateInLocation(transactions[i].Date, s.location)
 		}
 	}
 	extraction.Transactions = transactions
@@ -214,6 +226,39 @@ func newPendingToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(bytes), nil
 }
 
+func supportsLedgerAppend(ledger Ledger) bool {
+	if _, ok := ledger.(batchLedger); ok {
+		return true
+	}
+	_, ok := ledger.(singleLedger)
+	return ok
+}
+
+func supportsImageParsing(aiParser AIParser) bool {
+	if _, ok := aiParser.(imageBatchParser); ok {
+		return true
+	}
+	_, ok := aiParser.(imageSingleParser)
+	return ok
+}
+
+func calendarDateInLocation(value time.Time, loc *time.Location) time.Time {
+	year, month, day := value.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, loc)
+}
+
+func calendarDateAfter(value, now time.Time) bool {
+	valueYear, valueMonth, valueDay := value.Date()
+	nowYear, nowMonth, nowDay := now.Date()
+	if valueYear != nowYear {
+		return valueYear > nowYear
+	}
+	if valueMonth != nowMonth {
+		return valueMonth > nowMonth
+	}
+	return valueDay > nowDay
+}
+
 func (s *Service) appendTransactions(ctx context.Context, updateID int, transactions []domain.Transaction) (AppendBatchResult, error) {
 	if ledger, ok := s.ledger.(batchLedger); ok {
 		return ledger.AppendTransactions(ctx, updateID, transactions)
@@ -259,7 +304,7 @@ func validateImageExtraction(extraction ai.ImageTransactionExtraction, now time.
 		if err := tx.Validate(); err != nil {
 			return err
 		}
-		if !tx.Date.IsZero() && tx.Date.After(now.Add(maxImageDateSkew)) {
+		if !tx.Date.IsZero() && calendarDateAfter(tx.Date, now) {
 			return errors.New("image transaction date is in the future")
 		}
 		key := fmt.Sprintf("%s\\x00%s\\x00%d\\x00%s\\x00%s", tx.Type, tx.Category, tx.Amount, tx.Note, tx.Date.Format("2006-01-02"))

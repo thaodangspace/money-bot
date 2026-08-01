@@ -14,11 +14,11 @@ func TestParseImageTransactionsJSONAcceptsReceiptAndList(t *testing.T) {
 	if err != nil || list.Kind != ImageExtractionList || list.Detected != 2 || len(list.Transactions) != 2 {
 		t.Fatalf("list=%#v err=%v", list, err)
 	}
-	if list.Transactions[0].Date.IsZero() || list.Transactions[1].Date.IsZero() {
-		// The absent date is intentionally left zero for service fallback.
-		if !list.Transactions[1].Date.IsZero() {
-			t.Fatalf("unexpected date=%v", list.Transactions[1].Date)
-		}
+	if list.Transactions[0].Date.IsZero() {
+		t.Fatal("explicit date was lost")
+	}
+	if !list.Transactions[1].Date.IsZero() {
+		t.Fatalf("absent date = %v, want zero", list.Transactions[1].Date)
 	}
 }
 
