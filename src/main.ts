@@ -19,8 +19,19 @@ export interface CLIOptions {
   logLevel: string;
 }
 
+export interface RuntimeEnvironment {
+  get(name: string): string | undefined;
+}
+
 export async function main(args: string[] = Deno.args): Promise<void> {
   const options = parseArgs(args);
+  const environment: RuntimeEnvironment = { get: (name) => Deno.env.get(name) };
+  if (!shouldRunPolling(environment)) {
+    console.log('Telegram polling disabled outside the Deno Deploy production timeline');
+    await runHealthServer();
+    return;
+  }
+
   const config = await loadConfig(options.configPath);
   if (options.dryRun) {
     console.log(JSON.stringify({
@@ -79,14 +90,47 @@ export async function main(args: string[] = Deno.args): Promise<void> {
   const stop = () => controller.abort();
   Deno.addSignalListener('SIGINT', stop);
   Deno.addSignalListener('SIGTERM', stop);
+  const healthServer = isDenoDeploy(environment)
+    ? Deno.serve({ signal: controller.signal }, healthResponse)
+    : undefined;
   try {
     await runPolling(controller.signal, telegram, handler, {
       updateTimeoutMs: config.app.updateTimeoutMs,
     });
   } finally {
+    controller.abort();
+    await healthServer?.finished;
     Deno.removeSignalListener('SIGINT', stop);
     Deno.removeSignalListener('SIGTERM', stop);
   }
+}
+
+export function shouldRunPolling(environment: RuntimeEnvironment): boolean {
+  return !isDenoDeploy(environment) || environment.get('DENO_TIMELINE') === 'production';
+}
+
+function isDenoDeploy(environment: RuntimeEnvironment): boolean {
+  return environment.get('DENO_DEPLOY') === 'true';
+}
+
+async function runHealthServer(): Promise<void> {
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  Deno.addSignalListener('SIGINT', stop);
+  Deno.addSignalListener('SIGTERM', stop);
+  const server = Deno.serve({ signal: controller.signal }, healthResponse);
+  try {
+    await server.finished;
+  } finally {
+    Deno.removeSignalListener('SIGINT', stop);
+    Deno.removeSignalListener('SIGTERM', stop);
+  }
+}
+
+function healthResponse(): Response {
+  return new Response('ok\n', {
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
 }
 
 export function parseArgs(args: string[]): CLIOptions {

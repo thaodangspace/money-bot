@@ -44,7 +44,7 @@ deno task start:openrouter
 
 ### Deno Deploy
 
-Deno Deploy can run without `config.yaml`. Set the variables from `.env.example` in the Deploy dashboard and use `src/main.ts` as the entrypoint. When `./config.yaml` is absent, the bot automatically builds its configuration from environment variables. Use OpenRouter or another publicly reachable AI endpoint; LM Studio on `localhost` is not available on Deploy.
+Deno Deploy can run without `config.yaml`. Set the variables from `.env.example` in the Deploy dashboard and use `src/main.ts` as the dynamic entrypoint. When `./config.yaml` is absent, the bot automatically builds its configuration from environment variables. Assign Telegram, Google, and AI credentials to the **Production** context only; do not assign them to **Development**. Preview and Git Branch timelines serve a health response without starting Telegram polling, while the Production timeline serves the same response and runs the bot. Use OpenRouter or another publicly reachable AI endpoint; LM Studio on `localhost` is not available on Deploy.
 
 ## Telegram commands
 
@@ -121,3 +121,4 @@ Live Google Sheets integration should be run only against a dedicated test sprea
 - **Legacy data missing from summary**: old rows must be under a valid `DD/MM/YYYY` date header for the requested month/year.
 - **AI parsing unavailable**: ensure LM Studio is running with a model loaded at `ai.baseURL`, or set `ai.provider: openrouter` and export the configured API key.
 - **Image parsing unavailable**: configure `ai.imageModel` (or `ai.model`) with a vision-capable model. For unclear receipts/transfers, send one complete, clearer image and confirm the preview before it is saved.
+- **Telegram `getUpdates` conflict on Deno Deploy**: ensure credentials use only the Production environment-variable context. Preview and Git Branch timelines must not receive the bot token. Also stop any local or older hosted instance using the same token.
