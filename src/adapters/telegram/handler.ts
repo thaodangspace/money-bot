@@ -10,6 +10,7 @@ import {
   startKeyboard,
   startText,
 } from './menu.ts';
+import { errorFields, type Logger, nullLogger } from '../../shared/logger.ts';
 import type {
   Callback,
   ImageFetcher,
@@ -28,6 +29,7 @@ export class TelegramHandler {
   readonly #authorizer: TelegramAuthorizer;
   readonly #imageFetcher?: ImageFetcher;
   readonly #maxOutputRunes: number;
+  readonly #logger: Logger;
 
   constructor(
     options: {
@@ -36,6 +38,7 @@ export class TelegramHandler {
       authorizer: TelegramAuthorizer;
       imageFetcher?: ImageFetcher;
       maxOutputRunes?: number;
+      logger?: Logger;
     },
   ) {
     this.#messenger = options.messenger;
@@ -43,9 +46,17 @@ export class TelegramHandler {
     this.#authorizer = options.authorizer;
     this.#imageFetcher = options.imageFetcher;
     this.#maxOutputRunes = options.maxOutputRunes ?? DEFAULT_MAX_MESSAGE_RUNES;
+    this.#logger = options.logger ?? nullLogger;
   }
 
   handleUpdate(signal: AbortSignal, update: Update): Promise<void> {
+    const route = update.message ? 'message' : update.callback ? 'callback' : 'unsupported';
+    this.#logger.forSignal(signal).debug('handler.route', {
+      from: 'TelegramHandler.handleUpdate',
+      to: `TelegramHandler.${route}`,
+      updateId: update.id,
+      route,
+    });
     if (update.message) return this.#handleMessage(signal, update.id, update.message);
     if (update.callback) return this.#handleCallback(signal, update.callback);
     return Promise.resolve();
@@ -54,6 +65,10 @@ export class TelegramHandler {
   async #handleMessage(signal: AbortSignal, updateId: number, message: Message): Promise<void> {
     if (message.isBot) return;
     if (!this.#authorizer.isAllowedPrivateChat(message.userId, message.chatId)) {
+      this.#logger.forSignal(signal).warn('handler.unauthorized', {
+        from: 'TelegramHandler',
+        to: 'Telegram API sendMessage',
+      });
       await this.#messenger.sendMessage(signal, message.chatId, 'Không có quyền sử dụng bot này.');
       return;
     }
@@ -84,6 +99,12 @@ export class TelegramHandler {
     try {
       image = await this.#imageFetcher.fetchImage(signal, message.image!);
     } catch (error) {
+      this.#logger.forSignal(signal).error('handler.image.fetch.failed', {
+        from: 'TelegramHandler',
+        to: 'TelegramImageFetcher.fetchImage',
+        updateId,
+        ...errorFields(error),
+      });
       await this.#sendChunks(
         signal,
         message.chatId,
@@ -99,6 +120,12 @@ export class TelegramHandler {
       });
       return this.#sendChunks(signal, message.chatId, prepared.text, imageKeyboard(prepared.token));
     } catch (error) {
+      this.#logger.forSignal(signal).error('handler.image.prepare.failed', {
+        from: 'TelegramHandler',
+        to: 'MoneyService.prepareImage',
+        updateId,
+        ...errorFields(error),
+      });
       await this.#sendChunks(
         signal,
         message.chatId,

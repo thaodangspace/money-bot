@@ -5,6 +5,7 @@ import {
   type Spreadsheet,
 } from './types.ts';
 import type { ServiceAccountTokenProvider } from './auth.ts';
+import { elapsedMs, errorFields, type Logger, nullLogger } from '../../shared/logger.ts';
 
 export class GoogleSheetsHTTPClient implements SheetsAPI {
   readonly #tokenProvider: ServiceAccountTokenProvider;
@@ -12,9 +13,16 @@ export class GoogleSheetsHTTPClient implements SheetsAPI {
   readonly #fetcher: typeof fetch;
   readonly #requestTimeoutMs: number;
 
+  readonly #logger: Logger;
+
   constructor(
     tokenProvider: ServiceAccountTokenProvider,
-    options: { baseURL?: string; fetcher?: typeof fetch; requestTimeoutMs?: number } = {},
+    options: {
+      baseURL?: string;
+      fetcher?: typeof fetch;
+      requestTimeoutMs?: number;
+      logger?: Logger;
+    } = {},
   ) {
     this.#tokenProvider = tokenProvider;
     this.#baseURL = (options.baseURL ?? 'https://sheets.googleapis.com/v4').replace(/\/+$/u, '');
@@ -22,6 +30,7 @@ export class GoogleSheetsHTTPClient implements SheetsAPI {
     this.#requestTimeoutMs = options.requestTimeoutMs && options.requestTimeoutMs > 0
       ? options.requestTimeoutMs
       : 30_000;
+    this.#logger = options.logger ?? nullLogger;
   }
 
   async getSpreadsheet(signal: AbortSignal, spreadsheetId: string): Promise<Spreadsheet> {
@@ -79,6 +88,10 @@ export class GoogleSheetsHTTPClient implements SheetsAPI {
     path: string,
     options: RequestInit = {},
   ): Promise<Record<string, unknown>> {
+    const logger = this.#logger.forSignal(signal);
+    const started = performance.now();
+    const target = `Google Sheets API ${options.method ?? 'GET'} ${path.split('?')[0]}`;
+    logger.debug('external.call.start', { from: 'GoogleSheetsHTTPClient', to: target });
     const token = await this.#tokenProvider.accessToken(signal);
     const timeoutController = new AbortController();
     const timeout = setTimeout(() => timeoutController.abort(), this.#requestTimeoutMs);
@@ -95,6 +108,12 @@ export class GoogleSheetsHTTPClient implements SheetsAPI {
         },
       });
     } catch (error) {
+      logger.error('external.call.failed', {
+        from: 'GoogleSheetsHTTPClient',
+        to: target,
+        durationMs: elapsedMs(started),
+        ...errorFields(error),
+      });
       throw new Error(`Google Sheets request failed: ${String(error)}`, { cause: error });
     } finally {
       clearTimeout(timeout);
@@ -107,10 +126,32 @@ export class GoogleSheetsHTTPClient implements SheetsAPI {
       } catch {
         // Keep HTTP errors generic if the response is not JSON.
       }
-      throw new GoogleHTTPError(response.status, message);
+      const error = new GoogleHTTPError(response.status, message);
+      logger.error('external.call.failed', {
+        from: 'GoogleSheetsHTTPClient',
+        to: target,
+        durationMs: elapsedMs(started),
+        status: response.status,
+        ...errorFields(error),
+      });
+      throw error;
     }
-    if (response.status === 204) return {};
+    if (response.status === 204) {
+      logger.debug('external.call.success', {
+        from: 'GoogleSheetsHTTPClient',
+        to: target,
+        durationMs: elapsedMs(started),
+        status: response.status,
+      });
+      return {};
+    }
     const data = await response.json();
+    logger.debug('external.call.success', {
+      from: 'GoogleSheetsHTTPClient',
+      to: target,
+      durationMs: elapsedMs(started),
+      status: response.status,
+    });
     return typeof data === 'object' && data !== null ? data as Record<string, unknown> : {};
   }
 }

@@ -1,22 +1,26 @@
 import { isTelegramParseError, markdownV2 } from './format.ts';
 import type { Callback, InlineKeyboard, Message, Messenger, Update } from './types.ts';
+import { elapsedMs, errorFields, type Logger, nullLogger } from '../../shared/logger.ts';
 
 export interface TelegramClientOptions {
   token: string;
   apiBaseURL?: string;
   fetcher?: typeof fetch;
+  logger?: Logger;
 }
 
 export class TelegramClient implements Messenger {
   readonly #token: string;
   readonly #apiBaseURL: string;
   readonly #fetcher: typeof fetch;
+  readonly #logger: Logger;
 
   constructor(options: TelegramClientOptions) {
     if (!options.token.trim()) throw new Error('telegram token is required');
     this.#token = options.token.trim();
     this.#apiBaseURL = (options.apiBaseURL ?? 'https://api.telegram.org').replace(/\/+$/u, '');
     this.#fetcher = options.fetcher ?? fetch;
+    this.#logger = options.logger ?? nullLogger;
   }
 
   async getUpdates(signal: AbortSignal, offset: number, timeoutSeconds = 30): Promise<Update[]> {
@@ -73,6 +77,13 @@ export class TelegramClient implements Messenger {
     method: string,
     body: Record<string, unknown>,
   ): Promise<{ result?: unknown }> {
+    const logger = this.#logger.forSignal(signal);
+    const started = performance.now();
+    logger.debug('external.call.start', {
+      from: 'TelegramClient',
+      to: `Telegram API ${method}`,
+      method,
+    });
     let response: Response;
     try {
       response = await this.#fetcher(`${this.#apiBaseURL}/bot${this.#token}/${method}`, {
@@ -82,6 +93,13 @@ export class TelegramClient implements Messenger {
         body: JSON.stringify(body),
       });
     } catch (error) {
+      logger.error('external.call.failed', {
+        from: 'TelegramClient',
+        to: `Telegram API ${method}`,
+        method,
+        durationMs: elapsedMs(started),
+        ...errorFields(error),
+      });
       throw new Error(`Telegram ${method} request failed`, { cause: error });
     }
     let data: unknown = {};
@@ -97,8 +115,23 @@ export class TelegramClient implements Messenger {
         `Telegram ${method} failed${description ? `: ${description}` : ''}`,
         retryAfter,
       );
+      logger.warn('external.call.failed', {
+        from: 'TelegramClient',
+        to: `Telegram API ${method}`,
+        method,
+        durationMs: elapsedMs(started),
+        status: response.status,
+        ...errorFields(error),
+      });
       throw error;
     }
+    logger.debug('external.call.success', {
+      from: 'TelegramClient',
+      to: `Telegram API ${method}`,
+      method,
+      durationMs: elapsedMs(started),
+      status: response.status,
+    });
     return data;
   }
 }

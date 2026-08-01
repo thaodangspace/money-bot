@@ -21,6 +21,7 @@ import {
   usageText,
 } from './format.ts';
 import { ImagePendingStore } from './image_pending_store.ts';
+import { elapsedMs, errorFields, type Logger, nullLogger } from '../shared/logger.ts';
 import type {
   AIParser,
   Commentator,
@@ -38,6 +39,7 @@ export class MoneyService {
   readonly #ai: AIParser;
   readonly #comments?: Commentator;
   readonly #pending: ImagePendingStore;
+  readonly #logger: Logger;
 
   constructor(options: ServiceOptions) {
     this.#timeZone = options.timeZone ?? 'Asia/Ho_Chi_Minh';
@@ -46,6 +48,7 @@ export class MoneyService {
     this.#ai = options.ai;
     this.#comments = options.comments;
     this.#pending = new ImagePendingStore(this.#clock);
+    this.#logger = options.logger ?? nullLogger;
   }
 
   isSummaryIntent(text: string): boolean {
@@ -53,6 +56,14 @@ export class MoneyService {
   }
 
   async record(signal: AbortSignal, updateId: number, text: string): Promise<ServiceResult> {
+    const logger = this.#logger.forSignal(signal);
+    const started = performance.now();
+    logger.info('service.record.start', {
+      from: 'TelegramHandler',
+      to: 'MoneyService.record',
+      updateId,
+      textLength: text.length,
+    });
     if (updateId <= 0) throw new Error('telegram update ID is required');
     text = text.trim();
     if (!text) return { text: usageText() };
@@ -60,7 +71,13 @@ export class MoneyService {
     try {
       transaction = await this.#ai.parseTransaction(signal, text);
       validateTransaction(transaction);
-    } catch {
+    } catch (error) {
+      logger.warn('service.record.parse_failed', {
+        from: 'MoneyService.record',
+        to: 'AIClient.parseTransaction',
+        durationMs: elapsedMs(started),
+        ...errorFields(error),
+      });
       return { text: usageText() };
     }
     transaction = {
@@ -69,8 +86,26 @@ export class MoneyService {
       sourceUpdateId: updateId,
       originalMessage: text,
     };
-    const result = await this.#ledger.appendTransactions(signal, updateId, [transaction]);
+    let result;
+    try {
+      result = await this.#ledger.appendTransactions(signal, updateId, [transaction]);
+    } catch (error) {
+      logger.error('service.record.ledger_failed', {
+        from: 'MoneyService.record',
+        to: 'SheetsRepository.appendTransactions',
+        durationMs: elapsedMs(started),
+        updateId,
+        ...errorFields(error),
+      });
+      throw error;
+    }
     if (result.status === 'duplicate') {
+      logger.info('service.record.duplicate', {
+        from: 'MoneyService.record',
+        to: 'SheetsRepository.appendTransactions',
+        durationMs: elapsedMs(started),
+        updateId,
+      });
       return { text: duplicateText(transaction), parsed: true, usedAI: true, duplicate: true };
     }
     let response = successText(transaction, true);
@@ -78,8 +113,21 @@ export class MoneyService {
       try {
         const comment = (await this.#comments.confirmation(signal, transaction, true)).trim();
         if (comment) response += `\n${boundText(comment, 240)}`;
-      } catch { /* best effort */ }
+      } catch (error) {
+        logger.warn('service.record.commentary_failed', {
+          from: 'MoneyService.record',
+          to: 'AIClient.confirmation',
+          ...errorFields(error),
+        });
+      }
     }
+    logger.info('service.record.success', {
+      from: 'MoneyService.record',
+      to: 'TelegramHandler',
+      durationMs: elapsedMs(started),
+      updateId,
+      usedAI: true,
+    });
     return { text: response, parsed: true, usedAI: true };
   }
 
@@ -88,6 +136,15 @@ export class MoneyService {
     updateId: number,
     input: ImageInput,
   ): Promise<ImagePreparation> {
+    const logger = this.#logger.forSignal(signal);
+    const started = performance.now();
+    logger.info('service.image.prepare.start', {
+      from: 'TelegramHandler',
+      to: 'MoneyService.prepareImage',
+      updateId,
+      bytes: input.data.byteLength,
+      mimeType: input.mimeType,
+    });
     if (updateId <= 0) throw new Error('telegram update ID is required');
     if (!input.mimeType.trim() || input.data.byteLength === 0) {
       throw new Error('image input is required');
@@ -102,6 +159,12 @@ export class MoneyService {
       );
       validateImageExtraction(extraction);
     } catch (error) {
+      logger.warn('service.image.prepare.failed', {
+        from: 'MoneyService.prepareImage',
+        to: 'AIClient.parseImageTransactions',
+        durationMs: elapsedMs(started),
+        ...errorFields(error),
+      });
       throw new Error('image transaction could not be extracted', { cause: error });
     }
 
@@ -123,12 +186,31 @@ export class MoneyService {
     }
     const token = this.#pending.add(transactions, updateId);
     if (!token) throw new Error('pending image capacity reached');
+    logger.info('service.image.prepare.success', {
+      from: 'MoneyService.prepareImage',
+      to: 'TelegramHandler',
+      durationMs: elapsedMs(started),
+      updateId,
+      transactionCount: transactions.length,
+    });
     return { text: imagePreviewTextBatch(transactions), token };
   }
 
   async confirmImage(signal: AbortSignal, token: string): Promise<ServiceResult> {
+    const logger = this.#logger.forSignal(signal);
+    const started = performance.now();
+    logger.info('service.image.confirm.start', {
+      from: 'TelegramHandler',
+      to: 'MoneyService.confirmImage',
+    });
     const pending = this.#pending.beginConfirmation(token);
-    if (!pending) return { text: imageConfirmationUnavailableText() };
+    if (!pending) {
+      logger.info('service.image.confirm.unavailable', {
+        from: 'MoneyService.confirmImage',
+        to: 'TelegramHandler',
+      });
+      return { text: imageConfirmationUnavailableText() };
+    }
     try {
       const result = await this.#ledger.appendTransactions(
         signal,
@@ -139,11 +221,24 @@ export class MoneyService {
         throw new Error(`unexpected append status: ${result.status}`);
       }
       this.#pending.complete(token);
+      logger.info('service.image.confirm.success', {
+        from: 'MoneyService.confirmImage',
+        to: 'TelegramHandler',
+        durationMs: elapsedMs(started),
+        status: result.status,
+        transactionCount: pending.transactions.length,
+      });
       return result.status === 'duplicate'
         ? { text: duplicateBatchText(pending.transactions), parsed: true, duplicate: true }
         : { text: successBatchText(pending.transactions), parsed: true };
     } catch (error) {
       this.#pending.releaseConfirmation(token);
+      logger.error('service.image.confirm.failed', {
+        from: 'MoneyService.confirmImage',
+        to: 'SheetsRepository.appendTransactions',
+        durationMs: elapsedMs(started),
+        ...errorFields(error),
+      });
       throw error;
     }
   }
@@ -155,16 +250,57 @@ export class MoneyService {
   }
 
   async summary(signal: AbortSignal, query: string): Promise<ServiceResult> {
+    const logger = this.#logger.forSignal(signal);
+    const started = performance.now();
+    logger.info('service.summary.start', {
+      from: 'TelegramHandler',
+      to: 'MoneyService.summary',
+      queryLength: query.length,
+    });
     const period = parseMonthlySummaryPeriod(query, this.#clock.now(), this.#timeZone);
-    if (!period) return { text: summaryUsageText() };
-    const summary = await this.#ledger.monthlySummary(signal, period.year, period.month);
+    if (!period) {
+      logger.info('service.summary.invalid_period', {
+        from: 'MoneyService.summary',
+        to: 'TelegramHandler',
+        durationMs: elapsedMs(started),
+      });
+      return { text: summaryUsageText() };
+    }
+    let summary;
+    try {
+      summary = await this.#ledger.monthlySummary(signal, period.year, period.month);
+    } catch (error) {
+      logger.error('service.summary.ledger_failed', {
+        from: 'MoneyService.summary',
+        to: 'SheetsRepository.monthlySummary',
+        durationMs: elapsedMs(started),
+        year: period.year,
+        month: period.month,
+        ...errorFields(error),
+      });
+      throw error;
+    }
     let response = formatSummary(summary);
     if (this.#comments) {
       try {
         const comment = (await this.#comments.summaryCommentary(signal, summary)).trim();
         if (comment) response += `\n${boundText(comment, 320)}`;
-      } catch { /* best effort */ }
+      } catch (error) {
+        logger.warn('service.summary.commentary_failed', {
+          from: 'MoneyService.summary',
+          to: 'AIClient.summaryCommentary',
+          ...errorFields(error),
+        });
+      }
     }
+    logger.info('service.summary.success', {
+      from: 'MoneyService.summary',
+      to: 'TelegramHandler',
+      durationMs: elapsedMs(started),
+      year: period.year,
+      month: period.month,
+      entryCount: summary.entryCount,
+    });
     return { text: response };
   }
 
