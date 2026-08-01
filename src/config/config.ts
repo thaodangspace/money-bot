@@ -73,9 +73,58 @@ export async function loadConfig(
   path: string,
   environment: Environment = systemEnvironment,
 ): Promise<RuntimeConfig> {
-  if (!path.trim()) throw new Error('config path is required');
-  const text = await Deno.readTextFile(path);
-  return normalizeConfig(parseYamlMap(text), environment, path);
+  if (!path.trim()) return configFromEnvironment(environment);
+  try {
+    const text = await Deno.readTextFile(path);
+    return normalizeConfig(parseYamlMap(text), environment, path);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return configFromEnvironment(environment);
+    throw error;
+  }
+}
+
+/** Build configuration entirely from environment variables, useful for Deno Deploy. */
+export function configFromEnvironment(environment: Environment = systemEnvironment): RuntimeConfig {
+  const credentialsJSON = environment.get('GOOGLE_CREDENTIALS_JSON')?.trim();
+  return normalizeConfig({
+    telegram: {
+      token: '',
+      tokenEnv: 'TELEGRAM_BOT_TOKEN',
+      allowedUserId: environment.get('TELEGRAM_ALLOWED_USER_ID') ?? '',
+      maxImageBytes: environment.get('TELEGRAM_MAX_IMAGE_BYTES') ?? '',
+    },
+    google: {
+      spreadsheetId: '',
+      spreadsheetIdEnv: 'GOOGLE_SHEET_ID',
+      credentialsFile: '',
+      credentialsJSONEnv: credentialsJSON ? 'GOOGLE_CREDENTIALS_JSON' : '',
+      serviceAccountEmailEnv: credentialsJSON ? '' : 'GOOGLE_SERVICE_ACCOUNT_EMAIL',
+      privateKeyEnv: credentialsJSON ? '' : 'GOOGLE_PRIVATE_KEY',
+      metadataSheet: environment.get('GOOGLE_METADATA_SHEET') ?? '',
+      requestTimeout: environment.get('GOOGLE_REQUEST_TIMEOUT') ?? '',
+    },
+    app: {
+      timezone: environment.get('APP_TIMEZONE') ?? '',
+      updateTimeout: environment.get('APP_UPDATE_TIMEOUT') ?? '',
+      shutdownTimeout: environment.get('APP_SHUTDOWN_TIMEOUT') ?? '',
+      maxInputRunes: environment.get('APP_MAX_INPUT_RUNES') ?? '',
+      maxOutputRunes: environment.get('APP_MAX_OUTPUT_RUNES') ?? '',
+    },
+    ai: {
+      enabled: true,
+      provider: environment.get('AI_PROVIDER') ?? '',
+      apiKeyEnv: 'AI_API_KEY',
+      model: environment.get('AI_MODEL') ?? '',
+      imageModel: environment.get('AI_IMAGE_MODEL') ?? '',
+      baseURL: environment.get('AI_BASE_URL') ?? '',
+      openrouterApiKeyEnv: 'OPENROUTER_API_KEY',
+      openrouterModel: environment.get('OPENROUTER_MODEL') ?? '',
+      openrouterBaseURL: environment.get('OPENROUTER_BASE_URL') ?? '',
+      openrouterReferer: environment.get('OPENROUTER_REFERER') ?? '',
+      openrouterAppName: environment.get('OPENROUTER_APP_NAME') ?? '',
+      requestTimeout: environment.get('AI_REQUEST_TIMEOUT') ?? '',
+    },
+  }, environment);
 }
 
 /** Exported separately so schema and normalization tests do not need filesystem permissions. */

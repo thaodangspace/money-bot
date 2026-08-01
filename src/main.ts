@@ -96,6 +96,11 @@ export function parseArgs(args: string[]): CLIOptions {
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (arg === '--config') {
+      if (index + 1 >= args.length) {
+        throw new Error(
+          '--config requires a path or empty value for environment-only configuration',
+        );
+      }
       configPath = args[++index] ?? '';
     } else if (arg === '--dry-run') {
       dryRun = true;
@@ -108,7 +113,6 @@ export function parseArgs(args: string[]): CLIOptions {
       throw new Error(`unknown argument: ${arg}`);
     }
   }
-  if (!configPath.trim()) throw new Error('--config requires a path');
   if (!logLevel.trim()) throw new Error('--log-level requires a value');
   return { configPath, dryRun, logLevel };
 }
