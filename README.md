@@ -56,7 +56,7 @@ Ordinary text is sent to the configured LLM and treated as a transaction unless 
 
 Send one standalone JPEG, PNG, or WebP photo/document (up to `telegram.maxImageBytes`, 5 MiB by default), optionally with a short caption. The configured `ai.imageModel` (or `ai.model` when omitted) must support vision input.
 
-The bot extracts only one clearly displayed final paid/transferred VND amount, then shows an income/expense preview. Tap **Xác nhận** to write it or **Hủy** to discard it. It rejects item lists without a clear total, ambiguous/internal/pending transfers, albums, unsupported formats, and unclear images. Pending previews expire after 10 minutes, are lost on bot restart, and must be resent if unavailable.
+The bot extracts one clearly displayed final paid/transferred VND amount from a receipt or transfer, or every clearly completed transaction from a standalone transaction-list image (up to 20). Receipt line items are never separate transactions. It shows a preview and requires **Xác nhận** to write all listed entries, or **Hủy** to discard them. Partial/ambiguous lists, ambiguous/internal/pending transfers, albums, unsupported formats, and unclear images are rejected without a write. Pending previews expire after 10 minutes, are lost on bot restart, and must be resent if unavailable.
 
 Images, raw OCR/model output, and captions are not stored. LM Studio can keep vision inference local; OpenRouter sends the image to its remote provider, so use it only when that privacy boundary is acceptable.
 

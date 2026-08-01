@@ -114,6 +114,34 @@ func TestAppendTransactionCreatesHeaderlessMonthlySheetAndMetadataThenWritesAtom
 	}
 }
 
+func TestAppendTransactionsWritesCrossMonthBatchAtomically(t *testing.T) {
+	api := newFakeAPI()
+	repo := mustRepo(t, api)
+	updateID := 202
+	transactions := []domain.Transaction{
+		{Type: domain.TransactionExpense, Category: "food", Note: "July", Amount: 100, Date: time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC)},
+		{Type: domain.TransactionIncome, Category: "salary", Note: "August", Amount: 200, Date: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
+	}
+	result, err := repo.AppendTransactions(context.Background(), updateID, transactions)
+	if err != nil || !result.Written() || result.TargetSheet != "2026-07,2026-08" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if len(api.batches) != 3 {
+		t.Fatalf("batch count=%d, want setup, header, atomic append", len(api.batches))
+	}
+	appendBatch := api.batches[2]
+	if len(appendBatch.Requests) != 3 {
+		t.Fatalf("append requests=%#v", appendBatch.Requests)
+	}
+	metadata := appendBatch.Requests[2].AppendCells.Values[0]
+	if len(metadata) != 5 || metadata[1] != "202" || metadata[3] != "2026-07,2026-08" || metadata[4] != "written" {
+		t.Fatalf("metadata=%#v", appendBatch.Requests[2].AppendCells.Values)
+	}
+	if len(api.values[quoteSheet("_money_bot_meta")+"!A2:E"]) != 1 {
+		t.Fatalf("metadata rows=%#v", api.values[quoteSheet("_money_bot_meta")+"!A2:E"])
+	}
+}
+
 func TestAppendTransactionUsesClockWhenTransactionDateIsZero(t *testing.T) {
 	api := newFakeAPI()
 	repo := mustRepo(t, api)

@@ -143,8 +143,15 @@ func (l ledgerAdapter) AppendTransaction(ctx context.Context, tx domain.Transact
 	if err != nil {
 		return service.AppendResult{}, err
 	}
-	status := service.AppendStatus(result.Status)
-	return service.AppendResult{Status: status, TargetSheet: result.TargetSheet}, nil
+	return service.AppendResult{Status: service.AppendStatus(result.Status), TargetSheet: result.TargetSheet}, nil
+}
+
+func (l ledgerAdapter) AppendTransactions(ctx context.Context, updateID int, transactions []domain.Transaction) (service.AppendBatchResult, error) {
+	result, err := l.repo.AppendTransactions(ctx, updateID, transactions)
+	if err != nil {
+		return service.AppendBatchResult{}, err
+	}
+	return service.AppendBatchResult{Status: service.AppendStatus(result.Status), TargetSheet: result.TargetSheet}, nil
 }
 
 func (l ledgerAdapter) MonthlySummary(ctx context.Context, year int, month time.Month) (domain.MonthlySummary, error) {
