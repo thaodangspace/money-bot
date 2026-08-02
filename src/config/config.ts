@@ -64,9 +64,12 @@ export interface RuntimeConfig {
     baseURL: string;
     referer: string;
     appName: string;
+    structuredOutput: StructuredOutput;
     requestTimeoutMs: number;
   };
 }
+
+export type StructuredOutput = 'none' | 'json_object' | 'json_schema';
 
 export interface Environment {
   get(name: string): string | undefined;
@@ -130,6 +133,7 @@ export function configFromEnvironment(environment: Environment = systemEnvironme
       openrouterBaseURL: environment.get('OPENROUTER_BASE_URL') ?? '',
       openrouterReferer: environment.get('OPENROUTER_REFERER') ?? '',
       openrouterAppName: environment.get('OPENROUTER_APP_NAME') ?? '',
+      structuredOutput: environment.get('AI_STRUCTURED_OUTPUT') ?? '',
       requestTimeout: environment.get('AI_REQUEST_TIMEOUT') ?? '',
     },
   }, environment);
@@ -184,6 +188,7 @@ export function normalizeConfig(
     'openrouterBaseURL',
     'openrouterReferer',
     'openrouterAppName',
+    'structuredOutput',
     'requestTimeout',
   ], 'ai');
 
@@ -239,6 +244,7 @@ export function normalizeConfig(
       baseURL,
       referer: stringValue(ai.openrouterReferer) || DEFAULTS.openRouterReferer,
       appName: stringValue(ai.openrouterAppName) || DEFAULTS.openRouterAppName,
+      structuredOutput: resolveStructuredOutput(ai.structuredOutput, provider),
       requestTimeoutMs: parseConfiguredDuration(ai.requestTimeout, DEFAULTS.aiTimeoutMs),
     },
   };
@@ -324,7 +330,21 @@ function validateConfig(config: RuntimeConfig): void {
   if (config.ai.provider === 'openrouter' && !config.ai.apiKey) {
     errors.push('openrouter API key is required');
   }
+  if (
+    config.ai.structuredOutput !== 'none' && config.ai.structuredOutput !== 'json_object' &&
+    config.ai.structuredOutput !== 'json_schema'
+  ) {
+    errors.push('ai.structuredOutput must be none, json_object, or json_schema');
+  }
   if (errors.length) throw new Error(errors.join('; '));
+}
+
+function resolveStructuredOutput(raw: unknown, provider: string): StructuredOutput {
+  const value = stringValue(raw).toLowerCase();
+  if (value === 'json_object' || value === 'json_schema' || value === 'none') {
+    return value;
+  }
+  return provider === 'lmstudio' ? 'none' : 'json_schema';
 }
 
 function parseConfiguredDuration(value: unknown, fallback: number): number {

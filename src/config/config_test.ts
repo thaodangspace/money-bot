@@ -66,6 +66,31 @@ Deno.test('config normalization resolves defaults, env values, and durations', (
   ) throw new Error('defaults were not applied');
 });
 
+Deno.test('config defaults structured output to JSON schema and honors explicit values', () => {
+  const jsonEnvironment: Environment = {
+    ...environment,
+    get(name) {
+      return name === 'GOOGLE_CREDENTIALS_JSON' ? '{}' : environment.get(name);
+    },
+  };
+  const base = {
+    telegram: { token: 't', tokenEnv: 'TELEGRAM_BOT_TOKEN', allowedUserId: 1 },
+    google: { spreadsheetId: 'sheet', credentialsJSONEnv: 'GOOGLE_CREDENTIALS_JSON' },
+    app: {},
+  };
+  const first = normalizeConfig({ ...base, ai: { provider: 'openrouter' } }, jsonEnvironment);
+  if (first.ai.structuredOutput !== 'json_schema') {
+    throw new Error(`structuredOutput: ${first.ai.structuredOutput}`);
+  }
+  const none = normalizeConfig(
+    { ...base, ai: { provider: 'openrouter', structuredOutput: 'none' } },
+    jsonEnvironment,
+  );
+  if (none.ai.structuredOutput !== 'none') throw new Error('none was not honored');
+  const lm = normalizeConfig({ ...base, ai: { provider: 'lmstudio' } }, jsonEnvironment);
+  if (lm.ai.structuredOutput !== 'none') throw new Error('lmstudio default should be none');
+});
+
 Deno.test('config rejects unknown fields and multiple credential sources', () => {
   const raw = {
     telegram: { token: 'token', allowedUserId: 1 },

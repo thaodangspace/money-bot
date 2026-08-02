@@ -10,6 +10,9 @@ import {
   MAX_IMAGE_TRANSACTIONS,
 } from '../adapters/ai/image_types.ts';
 import {
+  aiInvalidResponseText,
+  aiUnavailableText,
+  aiUnrecognizedText,
   boundText,
   duplicateBatchText,
   duplicateText,
@@ -23,6 +26,8 @@ import {
 } from './format.ts';
 import { InMemoryPendingImageStore, type PendingImageStore } from './image_pending_store.ts';
 import { elapsedMs, errorFields, type Logger, nullLogger } from '../shared/logger.ts';
+import { AIUnavailableError } from '../adapters/ai/client.ts';
+import { AIAmbiguousInputError, InvalidAIOutputError } from '../adapters/ai/validation.ts';
 import type {
   AIParser,
   Commentator,
@@ -77,17 +82,24 @@ export class MoneyService {
       } catch (error) {
         if (!(error instanceof TransactionNotRecognizedError)) throw error;
         usedAI = true;
-        transaction = await this.#ai.parseTransaction(signal, text);
+        try {
+          transaction = await this.#ai.parseTransaction(signal, text);
+        } catch (aiError) {
+          throw classifyAIError(aiError);
+        }
       }
       validateTransaction(transaction);
     } catch (error) {
+      const failureStage = failureDescription(error, usedAI);
       logger.warn('service.record.parse_failed', {
         from: 'MoneyService.record',
         to: usedAI ? 'AIClient.parseTransaction' : 'DeterministicParser.parseTransaction',
         durationMs: elapsedMs(started),
+        strategy: usedAI ? 'ai' : 'deterministic',
+        failureStage,
         ...errorFields(error),
       });
-      return { text: usageText() };
+      return { text: failureText(error, usedAI), parsed: false };
     }
     transaction = {
       ...transaction,
@@ -337,6 +349,32 @@ function validateImageExtraction(extraction: ImageTransactionExtraction): void {
     extraction.kind === 'transaction_list' && extraction.detected !== extraction.transactions.length
   ) throw new Error('incomplete image transaction list');
   for (const transaction of extraction.transactions) validateTransaction(transaction);
+}
+
+function classifyAIError(error: unknown): unknown {
+  if (
+    error instanceof AIUnavailableError || error instanceof AIAmbiguousInputError ||
+    error instanceof InvalidAIOutputError
+  ) {
+    return error;
+  }
+  return new AIUnavailableError('AI text parsing failed', { cause: error });
+}
+
+function failureDescription(error: unknown, usedAI: boolean): string {
+  if (!usedAI) return 'deterministic_invalid';
+  if (error instanceof AIAmbiguousInputError) return 'ai_ambiguous';
+  if (error instanceof InvalidAIOutputError) return 'ai_invalid_response';
+  if (error instanceof AIUnavailableError) return 'ai_unavailable';
+  return 'ai_unknown';
+}
+
+function failureText(error: unknown, usedAI: boolean): string {
+  if (!usedAI) return usageText();
+  if (error instanceof AIUnavailableError) return aiUnavailableText();
+  if (error instanceof AIAmbiguousInputError) return aiUnrecognizedText();
+  if (error instanceof InvalidAIOutputError) return aiInvalidResponseText();
+  return aiUnavailableText();
 }
 
 export type {

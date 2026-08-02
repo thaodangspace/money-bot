@@ -3,6 +3,7 @@ import {
   TRANSACTION_EXPENSE,
   TRANSACTION_INCOME,
 } from '../domain/transaction.ts';
+import { AIAmbiguousInputError, InvalidAIOutputError } from '../adapters/ai/validation.ts';
 import { MoneyService } from './money_service.ts';
 import type { AIParser, AppendBatchResult, Ledger } from './types.ts';
 import type { MonthlySummary } from '../domain/summary.ts';
@@ -38,6 +39,18 @@ class UnavailableAI extends FakeAI {
   override parseTransaction(): Promise<Transaction> {
     this.transactionCalls++;
     return Promise.reject(new Error('AI unavailable'));
+  }
+}
+
+class AmbiguousAI extends FakeAI {
+  override parseTransaction(): Promise<Transaction> {
+    return Promise.reject(new AIAmbiguousInputError('no amount'));
+  }
+}
+
+class InvalidAI extends FakeAI {
+  override parseTransaction(): Promise<Transaction> {
+    return Promise.reject(new InvalidAIOutputError('bad json'));
   }
 }
 
@@ -97,6 +110,27 @@ Deno.test('unrecognized transactions are delegated to AI', async () => {
     throw new Error(JSON.stringify(result));
   }
   if (!result.text.includes('AI đã hỗ trợ')) throw new Error(result.text);
+});
+
+Deno.test('ambiguous AI input is reported without a syntax lecture or write', async () => {
+  const service = new MoneyService({ ledger: new SimpleLedger(), ai: new AmbiguousAI() });
+  const result = await service.record(new AbortController().signal, 105, 'ăn tối với bạn');
+  if (result.parsed || result.duplicate) throw new Error(JSON.stringify(result));
+  if (!result.text.includes('không nhận ra')) throw new Error(result.text);
+});
+
+Deno.test('temporary provider failure yields a retry-oriented message, not a usage error', async () => {
+  const service = new MoneyService({ ledger: new SimpleLedger(), ai: new UnavailableAI() });
+  const result = await service.record(new AbortController().signal, 106, 'đi xin vú ăn tiền lẻ ge');
+  if (result.parsed) throw new Error(JSON.stringify(result));
+  if (!result.text.includes('AI không khả dụng')) throw new Error(result.text);
+});
+
+Deno.test('invalid AI response yields a dedicated response message', async () => {
+  const service = new MoneyService({ ledger: new SimpleLedger(), ai: new InvalidAI() });
+  const result = await service.record(new AbortController().signal, 107, 'vốn chi đó xyz');
+  if (result.parsed) throw new Error(JSON.stringify(result));
+  if (!result.text.includes('không đọc được phản hồi')) throw new Error(result.text);
 });
 
 class BlockingLedger implements Ledger {

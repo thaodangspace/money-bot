@@ -1,5 +1,5 @@
-import { AIClient } from './client.ts';
-import { InvalidAIOutputError, parseTransactionJSON } from './validation.ts';
+import { AIClient, AIUnavailableError } from './client.ts';
+import { AIAmbiguousInputError, InvalidAIOutputError, parseTransactionJSON } from './validation.ts';
 
 const validModelResponse = JSON.stringify({
   choices: [{
@@ -102,6 +102,129 @@ Deno.test('AI JSON validation accepts only a strict transaction object', () => {
   ) throws(() => parseTransactionJSON(content));
 });
 
+Deno.test('structured output uses zero temperature and JSON Schema for compatible providers', async () => {
+  let requestInit: RequestInit | undefined;
+  const client = new AIClient({
+    provider: 'openrouter',
+    model: 'model-x',
+    baseURL: 'https://example.invalid',
+    fetcher: (_input, init) => {
+      requestInit = init;
+      return Promise.resolve(new Response(validModelResponse));
+    },
+  });
+  await client.parseTransaction(new AbortController().signal, 'ăn tối 150k');
+  const body = JSON.parse(String(requestInit?.body)) as {
+    temperature: number;
+    response_format: { type: string; json_schema?: { name: string; strict: boolean } };
+  };
+  if (body.temperature !== 0) throw new Error(`temperature: ${body.temperature}`);
+  const format = body.response_format;
+  if (
+    format?.type !== 'json_schema' || format.json_schema?.name !== 'transaction' ||
+    format.json_schema?.strict !== true
+  ) throw new Error(JSON.stringify(body.response_format));
+
+  let noneInit: RequestInit | undefined;
+  const none = new AIClient({
+    provider: 'lmstudio',
+    model: 'local',
+    baseURL: 'https://example.invalid',
+    fetcher: (_input, init) => {
+      noneInit = init;
+      return Promise.resolve(new Response(validModelResponse));
+    },
+  });
+  await none.parseTransaction(new AbortController().signal, 'ăn tối 150k');
+  const noneBody = JSON.parse(String(noneInit?.body)) as { response_format?: unknown };
+  if ('response_format' in noneBody) throw new Error('lmstudio should not send response_format');
+});
+
+Deno.test('AI text extraction performs one bounded repair retry for syntactically invalid output', async () => {
+  let calls = 0;
+  const client = new AIClient({
+    model: 'model-x',
+    baseURL: 'https://example.invalid',
+    fetcher: () => {
+      calls++;
+      const content = calls === 1
+        ? '```json\n{"type":"expense","category":"food","amount":1}\n```'
+        : '{"type":"expense","category":"Ăn tối","amount":150000,"note":"pizza"}';
+      return Promise.resolve(
+        new Response(JSON.stringify({
+          choices: [{ message: { content } }],
+        })),
+      );
+    },
+  });
+  const transaction = await client.parseTransaction(new AbortController().signal, 'ăn tối 1k');
+  if (calls !== 2 || transaction.amount !== 150_000) {
+    throw new Error(`calls=${calls} transaction=${JSON.stringify(transaction)}`);
+  }
+});
+
+Deno.test('structurally invalid AI output after repair surfaces as InvalidAIOutputError', async () => {
+  const client = new AIClient({
+    model: 'model-x',
+    baseURL: 'https://example.invalid',
+    structuredOutput: 'none',
+    fetcher: () =>
+      Promise.resolve(
+        new Response(JSON.stringify({
+          choices: [{ message: { content: 'not json at all' } }],
+        })),
+      ),
+  });
+  let invalid = false;
+  try {
+    await client.parseTransaction(new AbortController().signal, 'message');
+  } catch (error) {
+    invalid = error instanceof InvalidAIOutputError;
+  }
+  if (!invalid) throw new Error('double-invalid output was not rejected');
+});
+
+Deno.test('ambiguous AI input is surfaced without a repair request', async () => {
+  let calls = 0;
+  const client = new AIClient({
+    model: 'model-x',
+    baseURL: 'https://example.invalid',
+    fetcher: () => {
+      calls++;
+      return Promise.resolve(
+        new Response(JSON.stringify({
+          choices: [{ message: { content: '{"error":"unknown"}' } }],
+        })),
+      );
+    },
+  });
+  let ambiguous = false;
+  try {
+    await client.parseTransaction(new AbortController().signal, 'ăn tối với bạn');
+  } catch (error) {
+    ambiguous = error instanceof AIAmbiguousInputError;
+  }
+  if (!ambiguous || calls !== 1) {
+    throw new Error(`ambiguous=${ambiguous} calls=${calls}`);
+  }
+});
+
+Deno.test('provider failures are surfaced as AIUnavailableError without leaking message text', async () => {
+  const client = new AIClient({
+    model: 'model-x',
+    baseURL: 'https://example.invalid',
+    fetcher: () => Promise.reject(new Error('connect failed')),
+  });
+  let unavailable = false;
+  try {
+    await client.parseTransaction(new AbortController().signal, 'secret text');
+  } catch (error) {
+    unavailable = error instanceof AIUnavailableError &&
+      !String(error).includes('secret text');
+  }
+  if (!unavailable) throw new Error('provider failure was not classified as unavailable');
+});
+
 Deno.test('AI client enforces response size and cancellation without leaking secrets', async () => {
   const client = new AIClient({
     apiKey: 'do-not-leak',
@@ -114,7 +237,7 @@ Deno.test('AI client enforces response size and cancellation without leaking sec
   try {
     await client.parseTransaction(new AbortController().signal, 'message');
   } catch (error) {
-    tooLarge = String(error).includes('too large') && !String(error).includes('do-not-leak');
+    tooLarge = error instanceof AIUnavailableError && !String(error).includes('do-not-leak');
   }
   if (!tooLarge) throw new Error('oversized response was accepted or leaked a secret');
 
@@ -142,7 +265,9 @@ function throws(fn: () => unknown): void {
   try {
     fn();
   } catch (error) {
-    if (!(error instanceof InvalidAIOutputError)) throw new Error(`wrong error: ${String(error)}`);
+    if (
+      !(error instanceof InvalidAIOutputError) && !(error instanceof AIAmbiguousInputError)
+    ) throw new Error(`wrong error: ${String(error)}`);
     return;
   }
   throw new Error('expected validation failure');

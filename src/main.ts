@@ -76,6 +76,7 @@ export async function main(args: string[] = Deno.args): Promise<void> {
     baseURL: config.ai.baseURL,
     referer: config.ai.referer,
     appName: config.ai.appName,
+    structuredOutput: config.ai.structuredOutput,
     requestTimeoutMs: config.ai.requestTimeoutMs,
     maxImageBytes: config.telegram.maxImageBytes,
     logger,

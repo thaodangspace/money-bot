@@ -15,8 +15,26 @@ export class InvalidAIOutputError extends Error {
   override name = 'InvalidAIOutputError';
 }
 
+/** The model understood the request but reported that no transaction is present. */
+export class AIAmbiguousInputError extends Error {
+  override name = 'AIAmbiguousInputError';
+}
+
 export const MAX_AI_CATEGORY_RUNES = 120;
 export const MAX_AI_NOTE_RUNES = 500;
+
+/** JSON Schema used for the strongest supported structured-output request. */
+export const TRANSACTION_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    type: { type: 'string', enum: ['expense', 'income'] },
+    category: { type: 'string', minLength: 1, maxLength: MAX_AI_CATEGORY_RUNES },
+    amount: { type: 'integer', minimum: 1 },
+    note: { type: 'string', maxLength: MAX_AI_NOTE_RUNES },
+  },
+  required: ['type', 'category', 'amount', 'note'],
+} as const;
 
 export function parseTransactionJSON(content: string): Transaction {
   const value = parseBareObject(content);
@@ -94,7 +112,7 @@ function parseTransactionValue(
 ): Transaction {
   assertAllowedFields(value, allowed);
   if (typeof value.error === 'string' && value.error.trim()) {
-    throw new InvalidAIOutputError('AI reported unknown transaction');
+    throw new AIAmbiguousInputError('AI reported unknown transaction');
   }
   if (typeof value.type !== 'string' || !isTransactionType(value.type.trim().toLowerCase())) {
     throw new InvalidAIOutputError('AI transaction type is invalid');
