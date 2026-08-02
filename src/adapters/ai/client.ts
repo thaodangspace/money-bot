@@ -1,17 +1,31 @@
 import type { Transaction } from '../../domain/transaction.ts';
 import type { AIParser, Commentator } from '../../service/types.ts';
-import { parseImageTransactionsJSON, parseTransactionJSON } from './validation.ts';
-import { IMAGE_TRANSACTIONS_SYSTEM_PROMPT, TRANSACTION_SYSTEM_PROMPT } from './prompts.ts';
+import {
+  AIAmbiguousInputError,
+  InvalidAIOutputError,
+  parseImageTransactionsJSON,
+  parseTransactionJSON,
+  TRANSACTION_JSON_SCHEMA,
+} from './validation.ts';
+import {
+  IMAGE_TRANSACTIONS_SYSTEM_PROMPT,
+  TRANSACTION_REPAIR_SYSTEM_PROMPT,
+  TRANSACTION_SYSTEM_PROMPT,
+} from './prompts.ts';
 import type { ImageTransactionExtraction } from './image_types.ts';
 import { elapsedMs, errorFields, type Logger, nullLogger } from '../../shared/logger.ts';
 
 const DEFAULT_MAX_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_CAPTION_RUNES = 500;
+const TRANSACTION_SCHEMA_NAME = 'transaction';
 
 export class AIUnavailableError extends Error {
   override name = 'AIUnavailableError';
 }
+
+/** JSON Schema, JSON object, or plain text response mode for text extraction. */
+export type StructuredOutput = 'none' | 'json_object' | 'json_schema';
 
 export interface AIClientOptions {
   provider?: string;
@@ -21,6 +35,7 @@ export interface AIClientOptions {
   baseURL: string;
   referer?: string;
   appName?: string;
+  structuredOutput?: StructuredOutput;
   requestTimeoutMs?: number;
   maxResponseBytes?: number;
   maxImageBytes?: number;
@@ -52,6 +67,7 @@ export class AIClient implements AIParser, Commentator {
   readonly #maxImageBytes?: number;
   readonly #fetcher: typeof fetch;
   readonly #logger: Logger;
+  readonly #transactionResponseFormat: unknown;
 
   constructor(options: AIClientOptions) {
     if (!options.baseURL.trim()) throw new Error('AI base URL is required');
@@ -72,6 +88,9 @@ export class AIClient implements AIParser, Commentator {
     this.#maxImageBytes = options.maxImageBytes;
     this.#fetcher = options.fetcher ?? fetch;
     this.#logger = options.logger ?? nullLogger;
+    this.#transactionResponseFormat = responseFormatFor(
+      resolveStructuredOutput(options.structuredOutput, this.#provider),
+    );
   }
 
   static openRouter(options: AIClientOptions): AIClient {
@@ -80,16 +99,61 @@ export class AIClient implements AIParser, Commentator {
   }
 
   async parseTransaction(signal: AbortSignal, message: string): Promise<Transaction> {
-    const content = await this.#chat(
-      signal,
-      [
-        { role: 'system', content: TRANSACTION_SYSTEM_PROMPT },
-        { role: 'user', content: `Message:\n${message}` },
-      ],
-      0.2,
-      this.#model,
+    try {
+      const content = await this.#chat(
+        signal,
+        [
+          { role: 'system', content: TRANSACTION_SYSTEM_PROMPT },
+          { role: 'user', content: `Message:\n${message}` },
+        ],
+        0,
+        this.#model,
+        this.#transactionResponseFormat,
+      );
+      try {
+        return parseTransactionJSON(content);
+      } catch (error) {
+        if (error instanceof AIAmbiguousInputError) throw error;
+        if (!(error instanceof InvalidAIOutputError)) throw this.#unavailable(error);
+        return this.#repairTransaction(signal, message);
+      }
+    } catch (error) {
+      throw this.#unavailable(error);
+    }
+  }
+
+  async #repairTransaction(signal: AbortSignal, message: string): Promise<Transaction> {
+    try {
+      const content = await this.#chat(
+        signal,
+        [
+          { role: 'system', content: TRANSACTION_REPAIR_SYSTEM_PROMPT },
+          { role: 'user', content: `Message:\n${message}` },
+        ],
+        0,
+        this.#model,
+        this.#transactionResponseFormat,
+      );
+      return parseTransactionJSON(content);
+    } catch (error) {
+      if (error instanceof AIAmbiguousInputError || error instanceof InvalidAIOutputError) {
+        throw error;
+      }
+      throw this.#unavailable(error);
+    }
+  }
+
+  #unavailable(error: unknown): unknown {
+    if (
+      error instanceof AIUnavailableError || error instanceof InvalidAIOutputError ||
+      error instanceof AIAmbiguousInputError
+    ) {
+      return error;
+    }
+    return new AIUnavailableError(
+      `${this.#provider} text parsing failed`,
+      { cause: error },
     );
-    return parseTransactionJSON(content);
   }
 
   async parseImageTransactions(
@@ -201,6 +265,7 @@ export class AIClient implements AIParser, Commentator {
     messages: ChatMessage[],
     temperature: number,
     model: string,
+    responseFormat?: unknown,
   ): Promise<string> {
     const logger = this.#logger.forSignal(signal);
     const started = performance.now();
@@ -214,11 +279,13 @@ export class AIClient implements AIParser, Commentator {
     const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
     const combined = AbortSignal.any([signal, controller.signal]);
     try {
+      const body: Record<string, unknown> = { model, messages, temperature };
+      if (responseFormat !== undefined) body.response_format = responseFormat;
       const response = await this.#fetcher(`${this.#baseURL}/chat/completions`, {
         method: 'POST',
         signal: combined,
         headers: this.#headers(),
-        body: JSON.stringify({ model, messages, temperature }),
+        body: JSON.stringify(body),
       });
       const data = await readLimited(response, this.#maxResponseBytes);
       if (!response.ok) throw new Error(`${this.#provider} HTTP status ${response.status}`);
@@ -288,6 +355,31 @@ async function readLimited(response: Response, maxBytes: number): Promise<string
     offset += chunk.byteLength;
   }
   return new TextDecoder().decode(joined);
+}
+
+function resolveStructuredOutput(
+  configured: StructuredOutput | undefined,
+  provider: string,
+): StructuredOutput {
+  if (configured === 'json_object' || configured === 'json_schema' || configured === 'none') {
+    return configured;
+  }
+  return provider === 'lmstudio' ? 'none' : 'json_schema';
+}
+
+function responseFormatFor(mode: StructuredOutput): unknown {
+  if (mode === 'json_object') return { type: 'json_object' };
+  if (mode === 'json_schema') {
+    return {
+      type: 'json_schema',
+      json_schema: {
+        name: TRANSACTION_SCHEMA_NAME,
+        strict: true,
+        schema: TRANSACTION_JSON_SCHEMA,
+      },
+    };
+  }
+  return undefined;
 }
 
 function chatContent(value: unknown): string | undefined {

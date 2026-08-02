@@ -80,6 +80,21 @@ export function usageText(): string {
   ].join('\n');
 }
 
+export function aiUnrecognizedText(): string {
+  return [
+    '🤔 Mình không nhận ra một giao dịch rõ ràng trong tin nhắn (không thấy số tiền hoặc chiều thu/chi không rõ).',
+    'Thử lại với số tiền cụ thể, ví dụ: ăn tối 150k hoặc thu lương 20tr.',
+  ].join('\n');
+}
+
+export function aiUnavailableText(): string {
+  return '😵 Mình tạm thời không xử lý được tin nhắn (AI không khả dụng). Vui lòng thử lại sau vài phút.';
+}
+
+export function aiInvalidResponseText(): string {
+  return '🤖 Mình không đọc được phản hồi từ AI để ghi giao dịch. Vui lòng thử gửi lại tin nhắn.';
+}
+
 export function summaryUsageText(): string {
   return [
     '🤷 Mình chưa hiểu tháng cần báo cáo.',
