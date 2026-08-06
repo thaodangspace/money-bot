@@ -30,6 +30,12 @@ class FakeRouter implements ConversationRouter {
   }
 }
 
+class FailingRouter implements ConversationRouter {
+  route(): Promise<ConversationIntent> {
+    return Promise.reject(new Error('AI timeout'));
+  }
+}
+
 class FakeLedger implements Ledger {
   appended: Transaction[] = [];
   summaries: Array<{ year: number; month: number }> = [];
@@ -94,4 +100,48 @@ Deno.test('handleText routes transactions and summaries without a second parser 
     throw new Error(JSON.stringify(explicitReport));
   }
   if (router.calls.length !== 4) throw new Error(`route calls: ${router.calls.length}`);
+});
+
+Deno.test('handleText falls back to deterministic parsing when the router times out', async () => {
+  const ledger = new FakeLedger();
+  const service = new MoneyService({
+    ai: new FakeAI(),
+    router: new FailingRouter(),
+    ledger,
+    clock: () => new Date('2026-07-18T10:00:00Z'),
+  });
+
+  const result = await service.handleText(
+    new AbortController().signal,
+    5,
+    'chi tiêu cá nhân 14tr',
+  );
+
+  if (!result.parsed || result.usedAI || ledger.appended.length !== 1) {
+    throw new Error(JSON.stringify(result));
+  }
+  const transaction = ledger.appended[0];
+  if (
+    transaction?.type !== 'expense' || transaction.category !== 'Chi tiêu cá nhân' ||
+    transaction.amount !== 14_000_000
+  ) throw new Error(JSON.stringify(transaction));
+});
+
+Deno.test('handleText overrides an AI clarification when deterministic parsing succeeds', async () => {
+  const ledger = new FakeLedger();
+  const service = new MoneyService({
+    ai: new FakeAI(),
+    router: new FakeRouter({ kind: 'clarify', question: 'Bạn muốn ghi gì?' }),
+    ledger,
+  });
+
+  const result = await service.handleText(
+    new AbortController().signal,
+    6,
+    'chi tiêu cá nhân 14tr',
+  );
+
+  if (!result.parsed || result.usedAI || ledger.appended[0]?.amount !== 14_000_000) {
+    throw new Error(JSON.stringify(result));
+  }
 });

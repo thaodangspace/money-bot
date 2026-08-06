@@ -104,6 +104,8 @@ export class MoneyService {
         durationMs: elapsedMs(started),
         ...errorFields(error),
       });
+      const fallback = await this.#deterministicFallback(signal, updateId, message);
+      if (fallback) return fallback;
       return {
         text: error instanceof InvalidAIOutputError ? aiInvalidResponseText() : aiUnavailableText(),
         context,
@@ -143,10 +145,13 @@ export class MoneyService {
         return { text: 'Bạn muốn ghi giao dịch, xem báo cáo tháng, hay xem hướng dẫn?', context };
       case 'greeting':
         return { text: greetingText(), context };
-      case 'clarify':
+      case 'clarify': {
+        const fallback = await this.#deterministicFallback(signal, updateId, message);
+        if (fallback) return fallback;
         // The intent does not identify what is missing, so never retain a stale
         // transaction/summary clarification across turns.
         return { text: clarifyText(intent.question) };
+      }
       case 'unsupported':
         return { text: unsupportedText(intent.reply), context };
       default:
@@ -244,11 +249,32 @@ export class MoneyService {
     return { text: response, parsed: true, usedAI };
   }
 
+  #deterministicFallback(
+    signal: AbortSignal,
+    updateId: number,
+    message: string,
+  ): Promise<ServiceResult | undefined> {
+    if (detectMonthlySummaryIntent(message)) return this.summary(signal, message);
+    let transaction: Transaction;
+    try {
+      transaction = parseTransaction(message);
+    } catch {
+      return Promise.resolve(undefined);
+    }
+    this.#logger.forSignal(signal).info('service.route.deterministic_fallback', {
+      from: 'MoneyService.handleText',
+      to: 'DeterministicParser.parseTransaction',
+      updateId,
+    });
+    return this.#recordRouted(signal, updateId, message, transaction, false);
+  }
+
   async #recordRouted(
     signal: AbortSignal,
     updateId: number,
     message: string,
-    routed: { type: 'expense' | 'income'; category: string; amount: number; note: string },
+    routed: { type: 'expense' | 'income'; category: string; amount: number; note?: string },
+    usedAI = true,
   ): Promise<ServiceResult> {
     const transaction: Transaction = {
       type: routed.type,
@@ -262,11 +288,11 @@ export class MoneyService {
     validateTransaction(transaction);
     const result = await this.#ledger.appendTransactions(signal, updateId, [transaction]);
     if (result.status === 'duplicate') {
-      return { text: duplicateText(transaction), parsed: true, duplicate: true, usedAI: true };
+      return { text: duplicateText(transaction), parsed: true, duplicate: true, usedAI };
     }
     // Keep the routed write response deterministic. An optional commentary call
     // would add another LLM round-trip to the webhook's time budget.
-    return { text: successText(transaction, true), parsed: true, usedAI: true };
+    return { text: successText(transaction, usedAI), parsed: true, usedAI };
   }
 
   async prepareImage(
