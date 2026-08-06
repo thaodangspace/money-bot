@@ -72,6 +72,7 @@ export async function main(args: string[] = Deno.args): Promise<void> {
     provider: config.ai.provider,
     apiKey: config.ai.apiKey,
     model: config.ai.model,
+    routerModel: config.ai.routerModel,
     imageModel: config.ai.imageModel,
     baseURL: config.ai.baseURL,
     referer: config.ai.referer,
@@ -85,6 +86,7 @@ export async function main(args: string[] = Deno.args): Promise<void> {
     timeZone: config.app.timezone,
     ledger: repository,
     ai,
+    router: ai,
     comments: ai,
     pending: new SheetsPendingImageStore({
       api: sheetsAPI,

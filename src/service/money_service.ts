@@ -1,3 +1,8 @@
+import {
+  type ConversationContext,
+  type ConversationIntent,
+  validateConversationIntent,
+} from '../domain/conversation.ts';
 import { detectMonthlySummaryIntent } from '../parser/intent.ts';
 import { parseMonthlySummaryPeriod } from '../parser/summary_period.ts';
 import { parseTransaction, TransactionNotRecognizedError } from '../parser/transaction.ts';
@@ -14,14 +19,17 @@ import {
   aiUnavailableText,
   aiUnrecognizedText,
   boundText,
+  clarifyText,
   duplicateBatchText,
   duplicateText,
   formatSummary,
+  greetingText,
   imageConfirmationUnavailableText,
   imagePreviewTextBatch,
   successBatchText,
   successText,
   summaryUsageText,
+  unsupportedText,
   usageText,
 } from './format.ts';
 import { InMemoryPendingImageStore, type PendingImageStore } from './image_pending_store.ts';
@@ -31,6 +39,7 @@ import { AIAmbiguousInputError, InvalidAIOutputError } from '../adapters/ai/vali
 import type {
   AIParser,
   Commentator,
+  ConversationRouter,
   ImageInput,
   ImagePreparation,
   Ledger,
@@ -43,6 +52,7 @@ export class MoneyService {
   readonly #clock: Clock;
   readonly #ledger: Ledger;
   readonly #ai: AIParser;
+  readonly #router?: ConversationRouter;
   readonly #comments?: Commentator;
   readonly #pending: PendingImageStore;
   readonly #logger: Logger;
@@ -53,6 +63,7 @@ export class MoneyService {
     this.#clock = options.clock ? { now: options.clock } : systemClock;
     this.#ledger = options.ledger;
     this.#ai = options.ai;
+    this.#router = options.router;
     this.#comments = options.comments;
     this.#pending = options.pending ?? new InMemoryPendingImageStore(this.#clock);
     this.#logger = options.logger ?? nullLogger;
@@ -60,6 +71,87 @@ export class MoneyService {
 
   isSummaryIntent(text: string): boolean {
     return detectMonthlySummaryIntent(text);
+  }
+
+  async handleText(
+    signal: AbortSignal,
+    updateId: number,
+    text: string,
+    context?: ConversationContext,
+  ): Promise<ServiceResult> {
+    if (updateId <= 0) throw new Error('telegram update ID is required');
+    const message = text.trim();
+    if (!message) return { text: usageText(), context };
+    if (!this.#router) {
+      return detectMonthlySummaryIntent(message)
+        ? this.summary(signal, message)
+        : this.record(signal, updateId, message);
+    }
+    const started = performance.now();
+    let intent: ConversationIntent;
+    try {
+      intent = await this.#router.route(signal, {
+        message,
+        now: this.#clock.now().toISOString(),
+        timeZone: this.#timeZone,
+        context,
+      });
+      validateConversationIntent(intent);
+    } catch (error) {
+      this.#logger.forSignal(signal).warn('service.route.failed', {
+        from: 'MoneyService.handleText',
+        to: 'ConversationRouter.route',
+        durationMs: elapsedMs(started),
+        ...errorFields(error),
+      });
+      return {
+        text: error instanceof InvalidAIOutputError ? aiInvalidResponseText() : aiUnavailableText(),
+        context,
+      };
+    }
+    this.#logger.forSignal(signal).info('service.route.success', {
+      from: 'MoneyService.handleText',
+      to: 'MoneyService.dispatchIntent',
+      durationMs: elapsedMs(started),
+      kind: intent.kind,
+    });
+    switch (intent.kind) {
+      case 'record_transaction': {
+        const result = await this.#recordRouted(signal, updateId, message, intent.transaction);
+        return { ...result, context: routedContext(this.#clock.now(), intent) };
+      }
+      case 'monthly_summary': {
+        const query = summaryQuery(intent.period);
+        const result = await this.summary(signal, query);
+        const period = resolveConversationPeriod(intent.period, this.#clock.now(), this.#timeZone);
+        return {
+          ...result,
+          context: {
+            lastIntent: 'monthly_summary',
+            lastSummaryPeriod: period,
+            expiresAt: new Date(this.#clock.now().getTime() + CONTEXT_TTL_MS).toISOString(),
+          },
+        };
+      }
+      case 'help':
+        return {
+          text:
+            'Bạn có thể ghi thu/chi bằng tiếng Việt, hỏi báo cáo tháng, gửi ảnh hóa đơn để xác nhận, hoặc hỏi “bạn làm được gì?”.',
+          context,
+        };
+      case 'menu':
+        return { text: 'Bạn muốn ghi giao dịch, xem báo cáo tháng, hay xem hướng dẫn?', context };
+      case 'greeting':
+        return { text: greetingText(), context };
+      case 'clarify':
+        // The intent does not identify what is missing, so never retain a stale
+        // transaction/summary clarification across turns.
+        return { text: clarifyText(intent.question) };
+      case 'unsupported':
+        return { text: unsupportedText(intent.reply), context };
+      default:
+        return assertNever(intent);
+    }
   }
 
   async record(signal: AbortSignal, updateId: number, text: string): Promise<ServiceResult> {
@@ -150,6 +242,42 @@ export class MoneyService {
       usedAI,
     });
     return { text: response, parsed: true, usedAI };
+  }
+
+  async #recordRouted(
+    signal: AbortSignal,
+    updateId: number,
+    message: string,
+    routed: { type: 'expense' | 'income'; category: string; amount: number; note: string },
+  ): Promise<ServiceResult> {
+    const transaction: Transaction = {
+      type: routed.type,
+      category: routed.category,
+      amount: routed.amount,
+      note: routed.note,
+      date: currentPlainDate(this.#clock.now(), this.#timeZone),
+      sourceUpdateId: updateId,
+      originalMessage: message,
+    };
+    validateTransaction(transaction);
+    const result = await this.#ledger.appendTransactions(signal, updateId, [transaction]);
+    if (result.status === 'duplicate') {
+      return { text: duplicateText(transaction), parsed: true, duplicate: true, usedAI: true };
+    }
+    let response = successText(transaction, true);
+    if (this.#comments) {
+      try {
+        const comment = (await this.#comments.confirmation(signal, transaction, true)).trim();
+        if (comment) response += `\n${boundText(comment, 240)}`;
+      } catch (error) {
+        this.#logger.forSignal(signal).warn('service.route.commentary_failed', {
+          from: 'MoneyService.handleText',
+          to: 'AIClient.confirmation',
+          ...errorFields(error),
+        });
+      }
+    }
+    return { text: response, parsed: true, usedAI: true };
   }
 
   async prepareImage(
@@ -333,6 +461,40 @@ export class MoneyService {
   get pendingImageCount(): number {
     return this.#pendingCount;
   }
+}
+
+const CONTEXT_TTL_MS = 20 * 60 * 1000;
+
+function summaryQuery(period: { year: number; month: number } | { relative: string }): string {
+  if ('relative' in period) {
+    return period.relative === 'previous_month' ? 'tháng trước' : 'tháng này';
+  }
+  return `${String(period.month).padStart(2, '0')}/${period.year}`;
+}
+
+function resolveConversationPeriod(
+  period: { year: number; month: number } | { relative: string },
+  now: Date,
+  timeZone: string,
+): { year: number; month: number } {
+  if ('year' in period) return period;
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: 'numeric' })
+    .formatToParts(now);
+  const year = Number(parts.find((part) => part.type === 'year')?.value);
+  const month = Number(parts.find((part) => part.type === 'month')?.value);
+  if (period.relative === 'current_month') return { year, month };
+  return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+}
+
+function routedContext(now: Date, intent: ConversationIntent): ConversationContext {
+  return {
+    lastIntent: intent.kind === 'record_transaction' ? 'record_transaction' : undefined,
+    expiresAt: new Date(now.getTime() + CONTEXT_TTL_MS).toISOString(),
+  };
+}
+
+function assertNever(value: never): never {
+  throw new Error(`unsupported conversation intent: ${String(value)}`);
 }
 
 function validateImageExtraction(extraction: ImageTransactionExtraction): void {

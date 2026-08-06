@@ -60,6 +60,7 @@ export interface RuntimeConfig {
     provider: string;
     apiKey: string;
     model: string;
+    routerModel: string;
     imageModel: string;
     baseURL: string;
     referer: string;
@@ -126,6 +127,7 @@ export function configFromEnvironment(environment: Environment = systemEnvironme
       provider: environment.get('AI_PROVIDER') ?? '',
       apiKeyEnv: 'AI_API_KEY',
       model: environment.get('AI_MODEL') ?? '',
+      routerModel: environment.get('AI_ROUTER_MODEL') ?? '',
       imageModel: environment.get('AI_IMAGE_MODEL') ?? '',
       baseURL: environment.get('AI_BASE_URL') ?? '',
       openrouterApiKeyEnv: 'OPENROUTER_API_KEY',
@@ -181,6 +183,7 @@ export function normalizeConfig(
     'provider',
     'apiKeyEnv',
     'model',
+    'routerModel',
     'imageModel',
     'baseURL',
     'openrouterApiKeyEnv',
@@ -209,6 +212,7 @@ export function normalizeConfig(
     (provider === 'openrouter'
       ? stringValue(ai.openrouterModel) || DEFAULTS.openRouterModel
       : DEFAULTS.lmStudioModel);
+  const routerModel = stringValue(ai.routerModel) || model;
   const baseURL = stringValue(ai.baseURL) ||
     (provider === 'openrouter'
       ? stringValue(ai.openrouterBaseURL) || DEFAULTS.openRouterBaseURL
@@ -240,6 +244,7 @@ export function normalizeConfig(
       provider,
       apiKey,
       model,
+      routerModel,
       imageModel,
       baseURL,
       referer: stringValue(ai.openrouterReferer) || DEFAULTS.openRouterReferer,

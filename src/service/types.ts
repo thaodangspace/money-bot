@@ -1,3 +1,4 @@
+import type { ConversationContext, ConversationIntent } from '../domain/conversation.ts';
 import type { MonthlySummary } from '../domain/summary.ts';
 import type { Transaction } from '../domain/transaction.ts';
 import type { ImageTransactionExtraction } from '../adapters/ai/image_types.ts';
@@ -17,6 +18,18 @@ export interface Ledger {
     transactions: Transaction[],
   ): Promise<AppendBatchResult>;
   monthlySummary(signal: AbortSignal, year: number, month: number): Promise<MonthlySummary>;
+}
+
+export interface ConversationRouter {
+  route(
+    signal: AbortSignal,
+    input: {
+      message: string;
+      now: string;
+      timeZone: string;
+      context?: ConversationContext;
+    },
+  ): Promise<ConversationIntent>;
 }
 
 export interface AIParser {
@@ -45,6 +58,7 @@ export interface ImagePreparation {
 }
 export interface ServiceResult {
   text: string;
+  context?: ConversationContext;
   parsed?: boolean;
   usedAI?: boolean;
   duplicate?: boolean;
@@ -54,6 +68,7 @@ export interface ServiceOptions {
   clock?: () => Date;
   ledger: Ledger;
   ai: AIParser;
+  router?: ConversationRouter;
   comments?: Commentator;
   pending?: PendingImageStore;
   logger?: Logger;

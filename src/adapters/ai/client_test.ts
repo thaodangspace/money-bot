@@ -47,6 +47,48 @@ Deno.test('AI client builds text requests and provider headers', async () => {
   if (body.model !== 'model-x' || body.messages.length !== 2) throw new Error(JSON.stringify(body));
 });
 
+Deno.test('AI client sends a strict nullable schema for conversation routing', async () => {
+  let requestInit: RequestInit | undefined;
+  const client = new AIClient({
+    provider: 'openrouter',
+    model: 'model-x',
+    baseURL: 'https://example.invalid',
+    fetcher: (_input, init) => {
+      requestInit = init;
+      return Promise.resolve(
+        new Response(JSON.stringify({
+          choices: [{
+            message: { content: '{"kind":"monthly_summary","period":{"year":2026,"month":5}}' },
+          }],
+        })),
+      );
+    },
+  });
+  const intent = await client.route(new AbortController().signal, {
+    message: 'xem báo cáo tháng 5',
+    now: '2026-07-18T10:00:00.000Z',
+    timeZone: 'Asia/Ho_Chi_Minh',
+  });
+  if (intent.kind !== 'monthly_summary') throw new Error(JSON.stringify(intent));
+  const body = JSON.parse(String(requestInit?.body)) as {
+    response_format?: {
+      type?: string;
+      json_schema?: {
+        strict?: boolean;
+        schema?: { required?: string[]; properties?: Record<string, unknown> };
+      };
+    };
+  };
+  const schema = body.response_format?.json_schema?.schema;
+  if (
+    body.response_format?.type !== 'json_schema' ||
+    body.response_format.json_schema?.strict !== true ||
+    JSON.stringify(schema?.required) !==
+      JSON.stringify(['kind', 'transaction', 'period', 'question', 'reply']) ||
+    !schema?.properties?.transaction || !schema.properties.period
+  ) throw new Error(JSON.stringify(body.response_format));
+});
+
 Deno.test('AI client builds vision requests with a bounded caption and data URL', async () => {
   let requestInit: RequestInit | undefined;
   const client = new AIClient({

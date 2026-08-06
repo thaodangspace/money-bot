@@ -1,13 +1,18 @@
+import type { ConversationContext, ConversationIntent } from '../../domain/conversation.ts';
 import type { Transaction } from '../../domain/transaction.ts';
 import type { AIParser, Commentator } from '../../service/types.ts';
 import {
   AIAmbiguousInputError,
+  CONVERSATION_JSON_SCHEMA,
   InvalidAIOutputError,
+  parseConversationIntentJSON,
   parseImageTransactionsJSON,
   parseTransactionJSON,
   TRANSACTION_JSON_SCHEMA,
 } from './validation.ts';
 import {
+  CONVERSATION_REPAIR_SYSTEM_PROMPT,
+  CONVERSATION_SYSTEM_PROMPT,
   IMAGE_TRANSACTIONS_SYSTEM_PROMPT,
   TRANSACTION_REPAIR_SYSTEM_PROMPT,
   TRANSACTION_SYSTEM_PROMPT,
@@ -19,6 +24,7 @@ const DEFAULT_MAX_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_CAPTION_RUNES = 500;
 const TRANSACTION_SCHEMA_NAME = 'transaction';
+const CONVERSATION_SCHEMA_NAME = 'conversation_intent';
 
 export class AIUnavailableError extends Error {
   override name = 'AIUnavailableError';
@@ -31,6 +37,7 @@ export interface AIClientOptions {
   provider?: string;
   apiKey?: string;
   model: string;
+  routerModel?: string;
   imageModel?: string;
   baseURL: string;
   referer?: string;
@@ -58,6 +65,7 @@ export class AIClient implements AIParser, Commentator {
   readonly #provider: string;
   readonly #apiKey: string;
   readonly #model: string;
+  readonly #routerModel: string;
   readonly #imageModel: string;
   readonly #baseURL: string;
   readonly #referer?: string;
@@ -68,6 +76,7 @@ export class AIClient implements AIParser, Commentator {
   readonly #fetcher: typeof fetch;
   readonly #logger: Logger;
   readonly #transactionResponseFormat: unknown;
+  readonly #conversationResponseFormat: unknown;
 
   constructor(options: AIClientOptions) {
     if (!options.baseURL.trim()) throw new Error('AI base URL is required');
@@ -75,6 +84,7 @@ export class AIClient implements AIParser, Commentator {
     this.#provider = options.provider?.trim() || 'openai_compatible';
     this.#apiKey = options.apiKey?.trim() ?? '';
     this.#model = options.model.trim();
+    this.#routerModel = options.routerModel?.trim() || this.#model;
     this.#imageModel = options.imageModel?.trim() || this.#model;
     this.#baseURL = options.baseURL.replace(/\/+$/u, '');
     this.#referer = options.referer;
@@ -88,14 +98,83 @@ export class AIClient implements AIParser, Commentator {
     this.#maxImageBytes = options.maxImageBytes;
     this.#fetcher = options.fetcher ?? fetch;
     this.#logger = options.logger ?? nullLogger;
+    const outputMode = resolveStructuredOutput(options.structuredOutput, this.#provider);
     this.#transactionResponseFormat = responseFormatFor(
-      resolveStructuredOutput(options.structuredOutput, this.#provider),
+      outputMode,
+      TRANSACTION_SCHEMA_NAME,
+      TRANSACTION_JSON_SCHEMA,
+    );
+    this.#conversationResponseFormat = responseFormatFor(
+      outputMode,
+      CONVERSATION_SCHEMA_NAME,
+      CONVERSATION_JSON_SCHEMA,
     );
   }
 
   static openRouter(options: AIClientOptions): AIClient {
     if (!options.apiKey?.trim()) throw new AIUnavailableError('OpenRouter API key is required');
     return new AIClient({ ...options, provider: options.provider || 'openrouter' });
+  }
+
+  async route(
+    signal: AbortSignal,
+    input: {
+      message: string;
+      now: string;
+      timeZone: string;
+      context?: ConversationContext;
+    },
+  ): Promise<ConversationIntent> {
+    try {
+      const content = await this.#chat(
+        signal,
+        [
+          { role: 'system', content: CONVERSATION_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              message: input.message,
+              now: input.now,
+              timeZone: input.timeZone,
+              context: input.context ?? null,
+            }),
+          },
+        ],
+        0,
+        this.#routerModel,
+        this.#conversationResponseFormat,
+      );
+      try {
+        return parseConversationIntentJSON(content);
+      } catch (error) {
+        if (!(error instanceof InvalidAIOutputError)) throw error;
+        return this.#repairRoute(signal, input);
+      }
+    } catch (error) {
+      throw this.#unavailable(error);
+    }
+  }
+
+  async #repairRoute(
+    signal: AbortSignal,
+    input: { message: string; now: string; timeZone: string; context?: ConversationContext },
+  ): Promise<ConversationIntent> {
+    try {
+      const content = await this.#chat(
+        signal,
+        [
+          { role: 'system', content: CONVERSATION_REPAIR_SYSTEM_PROMPT },
+          { role: 'user', content: JSON.stringify(input) },
+        ],
+        0,
+        this.#routerModel,
+        this.#conversationResponseFormat,
+      );
+      return parseConversationIntentJSON(content);
+    } catch (error) {
+      if (error instanceof InvalidAIOutputError) throw error;
+      throw this.#unavailable(error);
+    }
   }
 
   async parseTransaction(signal: AbortSignal, message: string): Promise<Transaction> {
@@ -367,17 +446,10 @@ function resolveStructuredOutput(
   return provider === 'lmstudio' ? 'none' : 'json_schema';
 }
 
-function responseFormatFor(mode: StructuredOutput): unknown {
+function responseFormatFor(mode: StructuredOutput, name: string, schema: unknown): unknown {
   if (mode === 'json_object') return { type: 'json_object' };
   if (mode === 'json_schema') {
-    return {
-      type: 'json_schema',
-      json_schema: {
-        name: TRANSACTION_SCHEMA_NAME,
-        strict: true,
-        schema: TRANSACTION_JSON_SCHEMA,
-      },
-    };
+    return { type: 'json_schema', json_schema: { name, strict: true, schema } };
   }
   return undefined;
 }
