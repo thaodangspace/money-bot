@@ -10,7 +10,14 @@ Deno.test('conversation intent validation accepts allow-listed actions', () => {
   const summary = parseConversationIntentJSON(
     '{"kind":"monthly_summary","period":{"relative":"previous_month"}}',
   );
-  if (summary.kind !== 'monthly_summary' || !('relative' in summary.period)) {
+  const explicit = parseConversationIntentJSON(
+    '{"kind":"monthly_summary","period":{"year":2026,"month":5}}',
+  );
+  if (
+    summary.kind !== 'monthly_summary' || !('relative' in summary.period) ||
+    explicit.kind !== 'monthly_summary' || !('year' in explicit.period) ||
+    explicit.period.year !== 2026 || explicit.period.month !== 5
+  ) {
     throw new Error(JSON.stringify(summary));
   }
   for (

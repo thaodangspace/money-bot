@@ -62,7 +62,8 @@ Deno.test('handleText routes transactions and summaries without a second parser 
       transaction: { type: 'expense', category: 'food', amount: 150_000, note: 'ăn tối' },
     },
     { kind: 'monthly_summary', period: { relative: 'current_month' } },
-    { kind: 'clarify', question: 'Bạn muốn ghi thu hay chi?' },
+    { kind: 'clarify', question: 'Bạn muốn xem tháng nào?' },
+    { kind: 'monthly_summary', period: { year: 2026, month: 5 } },
   );
   const ledger = new FakeLedger();
   const service = new MoneyService({
@@ -84,12 +85,13 @@ Deno.test('handleText routes transactions and summaries without a second parser 
   if (ledger.summaries[0]?.year !== 2026 || ledger.summaries[0]?.month !== 7 || !report.text) {
     throw new Error(JSON.stringify(report));
   }
-  const clarification = await service.handleText(new AbortController().signal, 3, 'mua đồ hôm qua');
-  if (
-    clarification.parsed || ledger.appended.length !== 1 ||
-    !clarification.text.includes('thu hay chi')
-  ) {
+  const clarification = await service.handleText(new AbortController().signal, 3, 'xem báo cáo');
+  if (clarification.parsed || clarification.context || ledger.appended.length !== 1) {
     throw new Error(JSON.stringify(clarification));
   }
-  if (router.calls.length !== 3) throw new Error(`route calls: ${router.calls.length}`);
+  const explicitReport = await service.handleText(new AbortController().signal, 4, 'tháng 5');
+  if (ledger.summaries[1]?.year !== 2026 || ledger.summaries[1]?.month !== 5) {
+    throw new Error(JSON.stringify(explicitReport));
+  }
+  if (router.calls.length !== 4) throw new Error(`route calls: ${router.calls.length}`);
 });

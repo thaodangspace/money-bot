@@ -144,14 +144,9 @@ export class MoneyService {
       case 'greeting':
         return { text: greetingText(), context };
       case 'clarify':
-        return {
-          text: clarifyText(intent.question),
-          context: {
-            ...(context ?? {}),
-            pendingClarification: { kind: 'record_transaction', missing: ['more details'] },
-            expiresAt: new Date(this.#clock.now().getTime() + CONTEXT_TTL_MS).toISOString(),
-          },
-        };
+        // The intent does not identify what is missing, so never retain a stale
+        // transaction/summary clarification across turns.
+        return { text: clarifyText(intent.question) };
       case 'unsupported':
         return { text: unsupportedText(intent.reply), context };
       default:

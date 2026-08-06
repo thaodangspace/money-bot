@@ -100,7 +100,6 @@ export function validateConversationTransaction(value: ConversationTransaction):
 export function validateConversationPeriod(value: ConversationPeriod): void {
   if (!isRecord(value)) throw new Error('conversation period is invalid');
   const keys = Object.keys(value);
-  if (keys.length !== 1) throw new Error('conversation period has extra fields');
   if ('relative' in value) {
     if (
       keys.length !== 1 || value.relative !== 'current_month' && value.relative !== 'previous_month'

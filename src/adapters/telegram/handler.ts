@@ -82,6 +82,7 @@ export class TelegramHandler {
       const context = this.#activeContext(message.chatId);
       const result = await this.#service.handleText(signal, updateId, text, context);
       if (result.context) this.#contexts.set(message.chatId, result.context);
+      else this.#contexts.delete(message.chatId);
       await this.#sendChunks(signal, message.chatId, result.text);
       return;
     }
