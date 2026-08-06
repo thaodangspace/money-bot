@@ -264,20 +264,9 @@ export class MoneyService {
     if (result.status === 'duplicate') {
       return { text: duplicateText(transaction), parsed: true, duplicate: true, usedAI: true };
     }
-    let response = successText(transaction, true);
-    if (this.#comments) {
-      try {
-        const comment = (await this.#comments.confirmation(signal, transaction, true)).trim();
-        if (comment) response += `\n${boundText(comment, 240)}`;
-      } catch (error) {
-        this.#logger.forSignal(signal).warn('service.route.commentary_failed', {
-          from: 'MoneyService.handleText',
-          to: 'AIClient.confirmation',
-          ...errorFields(error),
-        });
-      }
-    }
-    return { text: response, parsed: true, usedAI: true };
+    // Keep the routed write response deterministic. An optional commentary call
+    // would add another LLM round-trip to the webhook's time budget.
+    return { text: successText(transaction, true), parsed: true, usedAI: true };
   }
 
   async prepareImage(
