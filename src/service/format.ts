@@ -71,6 +71,18 @@ export function imageConfirmationUnavailableText(): string {
   return '⌛ Xác nhận ảnh không còn hiệu lực. Vui lòng gửi lại ảnh.';
 }
 
+export function greetingText(): string {
+  return 'Xin chào! Bạn có thể nói tự nhiên như “ăn tối 150k”, hỏi báo cáo tháng này, hoặc nhắn “bạn làm được gì?”';
+}
+
+export function clarifyText(question: string): string {
+  return `🤔 ${boundText(question, 500)}`;
+}
+
+export function unsupportedText(reply: string): string {
+  return `ℹ️ ${boundText(reply, 500)}`;
+}
+
 export function usageText(): string {
   return [
     '🤷 Mình chưa hiểu giao dịch này.',

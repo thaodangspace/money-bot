@@ -34,6 +34,8 @@ ai:
   # Local LM Studio/OpenAI-compatible server is the default.
   provider: lmstudio
   model: local-model
+  # Optional separate model for natural-language intent routing; defaults to model.
+  routerModel: local-model
   # Optional vision-capable model for receipt/transfer images; defaults to model.
   imageModel: local-model
   baseURL: http://localhost:1234/v1

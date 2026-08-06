@@ -1,3 +1,4 @@
+import type { ConversationContext } from '../../domain/conversation.ts';
 import { TelegramAuthorizer } from './authz.ts';
 import { chunkText, DEFAULT_MAX_MESSAGE_RUNES } from './format.ts';
 import {
@@ -30,6 +31,7 @@ export class TelegramHandler {
   readonly #imageFetcher?: ImageFetcher;
   readonly #maxOutputRunes: number;
   readonly #logger: Logger;
+  readonly #contexts = new Map<number, ConversationContext>();
 
   constructor(
     options: {
@@ -76,6 +78,13 @@ export class TelegramHandler {
     const text = message.text.trim();
     if (!text) return;
     if (text.startsWith('/')) return this.#handleCommand(signal, message.chatId, text);
+    if (this.#service.handleText) {
+      const context = this.#activeContext(message.chatId);
+      const result = await this.#service.handleText(signal, updateId, text, context);
+      if (result.context) this.#contexts.set(message.chatId, result.context);
+      await this.#sendChunks(signal, message.chatId, result.text);
+      return;
+    }
     if (this.#service.isSummaryIntent(text)) return this.#sendSummary(signal, message.chatId, text);
     return this.#sendRecord(signal, updateId, message.chatId, text);
   }
@@ -180,6 +189,16 @@ export class TelegramHandler {
       default:
         return this.#sendChunks(signal, chatId, 'Không rõ lệnh. Dùng /help để xem hướng dẫn.');
     }
+  }
+
+  #activeContext(chatId: number): ConversationContext | undefined {
+    const context = this.#contexts.get(chatId);
+    if (!context) return undefined;
+    if (Date.parse(context.expiresAt) <= Date.now()) {
+      this.#contexts.delete(chatId);
+      return undefined;
+    }
+    return context;
   }
 
   async #sendRecord(

@@ -1,4 +1,11 @@
 import {
+  type ConversationIntent,
+  type ConversationTransaction,
+  validateConversationIntent,
+  validateConversationPeriod,
+  validateConversationTransaction,
+} from '../../domain/conversation.ts';
+import {
   isTransactionType,
   type PlainDate,
   type Transaction,
@@ -22,6 +29,133 @@ export class AIAmbiguousInputError extends Error {
 
 export const MAX_AI_CATEGORY_RUNES = 120;
 export const MAX_AI_NOTE_RUNES = 500;
+
+export const CONVERSATION_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    kind: {
+      type: 'string',
+      enum: [
+        'record_transaction',
+        'monthly_summary',
+        'help',
+        'menu',
+        'greeting',
+        'clarify',
+        'unsupported',
+      ],
+    },
+    transaction: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        type: { type: 'string', enum: ['expense', 'income'] },
+        category: { type: 'string', minLength: 1, maxLength: MAX_AI_CATEGORY_RUNES },
+        amount: { type: 'integer', minimum: 1 },
+        note: { type: 'string', maxLength: MAX_AI_NOTE_RUNES },
+      },
+      required: ['type', 'category', 'amount', 'note'],
+    },
+    period: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        year: { type: 'integer', minimum: 1900, maximum: 2200 },
+        month: { type: 'integer', minimum: 1, maximum: 12 },
+        relative: { type: 'string', enum: ['current_month', 'previous_month'] },
+      },
+    },
+    question: { type: 'string', minLength: 1, maxLength: 500 },
+    reply: { type: 'string', minLength: 1, maxLength: 500 },
+  },
+  required: ['kind'],
+} as const;
+
+export function parseConversationIntentJSON(content: string): ConversationIntent {
+  const value = parseBareObject(content);
+  assertAllowedFields(value, new Set(['kind', 'transaction', 'period', 'question', 'reply']));
+  if (typeof value.kind !== 'string') {
+    throw new InvalidAIOutputError('conversation kind is invalid');
+  }
+  let intent: ConversationIntent;
+  switch (value.kind) {
+    case 'record_transaction':
+      assertExactFields(value, ['kind', 'transaction']);
+      if (!isRecord(value.transaction)) {
+        throw new InvalidAIOutputError('conversation transaction missing');
+      }
+      assertAllowedFields(value.transaction, new Set(['type', 'category', 'amount', 'note']));
+      intent = {
+        kind: 'record_transaction',
+        transaction: {
+          type: value.transaction.type as ConversationTransaction['type'],
+          category: value.transaction.category as string,
+          amount: value.transaction.amount as number,
+          note: value.transaction.note as string,
+        },
+      };
+      break;
+    case 'monthly_summary': {
+      assertExactFields(value, ['kind', 'period']);
+      if (!isRecord(value.period)) throw new InvalidAIOutputError('conversation period missing');
+      assertAllowedFields(value.period, new Set(['year', 'month', 'relative']));
+      const periodKeys = Object.keys(value.period);
+      if (
+        (periodKeys.includes('relative') && periodKeys.length !== 1) ||
+        (!periodKeys.includes('relative') &&
+          (periodKeys.length !== 2 || !periodKeys.includes('year') ||
+            !periodKeys.includes('month')))
+      ) throw new InvalidAIOutputError('conversation period has extra fields');
+      if ('relative' in value.period && value.period.relative !== undefined) {
+        intent = {
+          kind: 'monthly_summary',
+          period: { relative: value.period.relative as 'current_month' | 'previous_month' },
+        };
+      } else {
+        intent = {
+          kind: 'monthly_summary',
+          period: {
+            year: value.period.year as number,
+            month: value.period.month as number,
+          },
+        };
+      }
+      break;
+    }
+    case 'help':
+      assertExactFields(value, ['kind']);
+      intent = { kind: 'help' };
+      break;
+    case 'menu':
+      assertExactFields(value, ['kind']);
+      intent = { kind: 'menu' };
+      break;
+    case 'greeting':
+      assertExactFields(value, ['kind']);
+      intent = { kind: 'greeting' };
+      break;
+    case 'clarify':
+      assertExactFields(value, ['kind', 'question']);
+      intent = { kind: 'clarify', question: value.question as string };
+      break;
+    case 'unsupported':
+      assertExactFields(value, ['kind', 'reply']);
+      intent = { kind: 'unsupported', reply: value.reply as string };
+      break;
+    default:
+      throw new InvalidAIOutputError('conversation kind is not allow-listed');
+  }
+  try {
+    validateConversationIntent(intent);
+    if (intent.kind === 'monthly_summary') validateConversationPeriod(intent.period);
+    if (intent.kind === 'record_transaction') validateConversationTransaction(intent.transaction);
+  } catch (error) {
+    if (error instanceof AIAmbiguousInputError) throw error;
+    throw new InvalidAIOutputError(String(error));
+  }
+  return intent;
+}
 
 /** JSON Schema used for the strongest supported structured-output request. */
 export const TRANSACTION_JSON_SCHEMA = {
@@ -159,6 +293,14 @@ function parseBareObject(content: string): Record<string, unknown> {
   }
   if (!isRecord(value)) throw new InvalidAIOutputError('AI output must be a JSON object');
   return value;
+}
+
+function assertExactFields(value: Record<string, unknown>, expected: string[]): void {
+  const actual = Object.keys(value).sort();
+  const allowed = [...expected].sort();
+  if (actual.length !== allowed.length || actual.some((key, index) => key !== allowed[index])) {
+    throw new InvalidAIOutputError('conversation intent has extra fields');
+  }
 }
 
 function assertAllowedFields(value: Record<string, unknown>, allowed: Set<string>): void {

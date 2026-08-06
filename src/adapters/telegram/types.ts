@@ -1,3 +1,4 @@
+import type { ConversationContext } from '../../domain/conversation.ts';
 import type { ImageInput, ImagePreparation, ServiceResult } from '../../service/types.ts';
 
 export interface Messenger {
@@ -11,6 +12,12 @@ export interface Messenger {
 }
 
 export interface MoneyServicePort {
+  handleText?(
+    signal: AbortSignal,
+    updateId: number,
+    text: string,
+    context?: ConversationContext,
+  ): Promise<ServiceResult>;
   record(signal: AbortSignal, updateId: number, text: string): Promise<ServiceResult>;
   prepareImage(signal: AbortSignal, updateId: number, input: ImageInput): Promise<ImagePreparation>;
   confirmImage(signal: AbortSignal, token: string): Promise<ServiceResult>;

@@ -21,7 +21,7 @@ The service uses the existing spreadsheet schema and remains compatible with leg
 - Legacy read compatibility for old numeric sheets `1` through `12` in Tiubot format.
 - Hidden `_money_bot_meta` worksheet for Telegram update idempotency.
 - `/summary` current-month totals across new and legacy sheets, with optional month arguments for older months.
-- Required LLM parsing for free-text transactions, with local LM Studio/OpenAI-compatible endpoint support and OpenRouter support.
+- LLM-first Vietnamese conversation routing for transactions, summaries, help, greetings, and safe clarification; local LM Studio/OpenAI-compatible endpoint support and OpenRouter support.
 - JPEG, PNG, or WebP receipt and completed bank-transfer image capture, with explicit confirmation before a Sheets write.
 
 ## Quick start
@@ -67,7 +67,7 @@ For local development, start the webhook server, expose it through a Deno Deploy
 - `/summary tháng 5`, `/summary 05/2026`, `/summary tháng trước` - report another month
 - `/help` - syntax help
 
-Ordinary text is sent to the configured LLM and treated as a transaction unless it is a command or a summary intent such as `chi tiêu tháng này`.
+Ordinary authorized text is sent to the configured LLM intent router first. You can write naturally (`ghi giúp mình 150k ăn tối`, `lương tháng này 25 triệu`), ask `tháng này mình tiêu bao nhiêu?`, or say `bot làm được gì?`; ambiguous requests are clarified without writing. `/start`, `/menu`, `/summary`, and `/help` remain available for compatibility. Short-lived structured context supports follow-ups such as `tháng trước thì sao?`; raw message history is not stored. Context is process-local and bounded for this release, expires after 20 minutes, and falls back to stateless routing after a restart; it is never used to fill missing financial write fields.
 
 ## Image transactions
 
