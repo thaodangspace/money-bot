@@ -77,6 +77,7 @@ export class AIClient implements AIParser, Commentator {
   readonly #logger: Logger;
   readonly #transactionResponseFormat: unknown;
   readonly #conversationResponseFormat: unknown;
+  readonly #conversationFallbackFormat: unknown;
 
   constructor(options: AIClientOptions) {
     if (!options.baseURL.trim()) throw new Error('AI base URL is required');
@@ -109,6 +110,11 @@ export class AIClient implements AIParser, Commentator {
       CONVERSATION_SCHEMA_NAME,
       CONVERSATION_JSON_SCHEMA,
     );
+    this.#conversationFallbackFormat = responseFormatFor(
+      'json_object',
+      CONVERSATION_SCHEMA_NAME,
+      CONVERSATION_JSON_SCHEMA,
+    );
   }
 
   static openRouter(options: AIClientOptions): AIClient {
@@ -125,30 +131,41 @@ export class AIClient implements AIParser, Commentator {
       context?: ConversationContext;
     },
   ): Promise<ConversationIntent> {
+    const messages: ChatMessage[] = [
+      { role: 'system', content: CONVERSATION_SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          message: input.message,
+          now: input.now,
+          timeZone: input.timeZone,
+          context: input.context ?? null,
+        }),
+      },
+    ];
     try {
-      const content = await this.#chat(
-        signal,
-        [
-          { role: 'system', content: CONVERSATION_SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              message: input.message,
-              now: input.now,
-              timeZone: input.timeZone,
-              context: input.context ?? null,
-            }),
-          },
-        ],
-        0,
-        this.#routerModel,
-        this.#conversationResponseFormat,
-      );
+      let responseFormat = this.#conversationResponseFormat;
+      let content: string;
+      try {
+        content = await this.#chat(
+          signal,
+          messages,
+          0,
+          this.#routerModel,
+          responseFormat,
+        );
+      } catch (error) {
+        if (!shouldRetryConversationRequest(error, signal, responseFormat)) throw error;
+        // Some OpenAI-compatible providers close/reject strict schemas. Keep the
+        // application validator as the source of truth and retry with JSON mode.
+        responseFormat = this.#conversationFallbackFormat;
+        content = await this.#chat(signal, messages, 0, this.#routerModel, responseFormat);
+      }
       try {
         return parseConversationIntentJSON(content);
       } catch (error) {
         if (!(error instanceof InvalidAIOutputError)) throw error;
-        return this.#repairRoute(signal, input);
+        return this.#repairRoute(signal, input, responseFormat);
       }
     } catch (error) {
       throw this.#unavailable(error);
@@ -158,6 +175,7 @@ export class AIClient implements AIParser, Commentator {
   async #repairRoute(
     signal: AbortSignal,
     input: { message: string; now: string; timeZone: string; context?: ConversationContext },
+    responseFormat = this.#conversationResponseFormat,
   ): Promise<ConversationIntent> {
     try {
       const content = await this.#chat(
@@ -168,7 +186,7 @@ export class AIClient implements AIParser, Commentator {
         ],
         0,
         this.#routerModel,
-        this.#conversationResponseFormat,
+        responseFormat,
       );
       return parseConversationIntentJSON(content);
     } catch (error) {
@@ -434,6 +452,16 @@ async function readLimited(response: Response, maxBytes: number): Promise<string
     offset += chunk.byteLength;
   }
   return new TextDecoder().decode(joined);
+}
+
+function shouldRetryConversationRequest(
+  error: unknown,
+  signal: AbortSignal,
+  responseFormat: unknown,
+): boolean {
+  if (responseFormat === undefined || signal.aborted) return false;
+  if (!(error instanceof Error)) return true;
+  return !/timed out|cancelled/iu.test(error.message);
 }
 
 function resolveStructuredOutput(

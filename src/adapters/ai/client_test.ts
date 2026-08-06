@@ -89,6 +89,41 @@ Deno.test('AI client sends a strict nullable schema for conversation routing', a
   ) throw new Error(JSON.stringify(body.response_format));
 });
 
+Deno.test('AI client retries routing with JSON mode when strict schema is rejected', async () => {
+  let calls = 0;
+  const client = new AIClient({
+    provider: 'openrouter',
+    model: 'model-x',
+    baseURL: 'https://example.invalid',
+    fetcher: (_input, init) => {
+      calls++;
+      const body = JSON.parse(String((init as RequestInit | undefined)?.body)) as {
+        response_format?: { type?: string };
+      };
+      if (calls === 1) {
+        if (body.response_format?.type !== 'json_schema') {
+          throw new Error('schema was not attempted');
+        }
+        return Promise.resolve(new Response('rejected', { status: 400 }));
+      }
+      if (body.response_format?.type !== 'json_object') {
+        throw new Error('JSON fallback was not used');
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({
+          choices: [{ message: { content: '{"kind":"greeting"}' } }],
+        })),
+      );
+    },
+  });
+  const intent = await client.route(new AbortController().signal, {
+    message: 'xin chào',
+    now: '2026-07-18T10:00:00.000Z',
+    timeZone: 'Asia/Ho_Chi_Minh',
+  });
+  if (intent.kind !== 'greeting' || calls !== 2) throw new Error(`${intent.kind}/${calls}`);
+});
+
 Deno.test('AI client builds vision requests with a bounded caption and data URL', async () => {
   let requestInit: RequestInit | undefined;
   const client = new AIClient({
