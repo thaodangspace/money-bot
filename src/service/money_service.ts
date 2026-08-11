@@ -1,5 +1,5 @@
 import { detectMonthlySummaryIntent } from '../parser/intent.ts';
-import { parseMonthlySummaryPeriod } from '../parser/summary_period.ts';
+import { parseReportPeriod } from '../parser/summary_period.ts';
 import { parseTransaction, TransactionNotRecognizedError } from '../parser/transaction.ts';
 import { currentPlainDate } from '../shared/calendar.ts';
 import { type Clock, systemClock } from '../shared/runtime.ts';
@@ -19,9 +19,9 @@ import {
   formatSummary,
   imageConfirmationUnavailableText,
   imagePreviewTextBatch,
+  reportUsageText,
   successBatchText,
   successText,
-  summaryUsageText,
   usageText,
 } from './format.ts';
 import { InMemoryPendingImageStore, type PendingImageStore } from './image_pending_store.ts';
@@ -34,6 +34,8 @@ import type {
   ImageInput,
   ImagePreparation,
   Ledger,
+  ReportResponse,
+  ReportResult,
   ServiceOptions,
   ServiceResult,
 } from './types.ts';
@@ -275,30 +277,30 @@ export class MoneyService {
       : { text: imageConfirmationUnavailableText() };
   }
 
-  async summary(signal: AbortSignal, query: string): Promise<ServiceResult> {
+  async report(signal: AbortSignal, query: string): Promise<ReportResponse> {
     const logger = this.#logger.forSignal(signal);
     const started = performance.now();
-    logger.info('service.summary.start', {
+    logger.info('service.report.start', {
       from: 'TelegramHandler',
-      to: 'MoneyService.summary',
+      to: 'MoneyService.report',
       queryLength: query.length,
     });
-    const period = parseMonthlySummaryPeriod(query, this.#clock.now(), this.#timeZone);
+    const period = parseReportPeriod(query, this.#clock.now(), this.#timeZone);
     if (!period) {
-      logger.info('service.summary.invalid_period', {
-        from: 'MoneyService.summary',
+      logger.info('service.report.invalid_period', {
+        from: 'MoneyService.report',
         to: 'TelegramHandler',
         durationMs: elapsedMs(started),
       });
-      return { text: summaryUsageText() };
+      return { text: reportUsageText() };
     }
-    let summary;
+    let report;
     try {
-      summary = await this.#ledger.monthlySummary(signal, period.year, period.month);
+      report = await this.#ledger.monthlyReport(signal, period.year, period.month);
     } catch (error) {
-      logger.error('service.summary.ledger_failed', {
-        from: 'MoneyService.summary',
-        to: 'SheetsRepository.monthlySummary',
+      logger.error('service.report.ledger_failed', {
+        from: 'MoneyService.report',
+        to: 'SheetsRepository.monthlyReport',
         durationMs: elapsedMs(started),
         year: period.year,
         month: period.month,
@@ -306,28 +308,41 @@ export class MoneyService {
       });
       throw error;
     }
-    let response = formatSummary(summary);
+    let response = formatSummary(report.summary);
     if (this.#comments) {
       try {
-        const comment = (await this.#comments.summaryCommentary(signal, summary)).trim();
+        const comment = (await this.#comments.summaryCommentary(signal, report.summary)).trim();
         if (comment) response += `\n${boundText(comment, 320)}`;
       } catch (error) {
-        logger.warn('service.summary.commentary_failed', {
-          from: 'MoneyService.summary',
+        logger.warn('service.report.commentary_failed', {
+          from: 'MoneyService.report',
           to: 'AIClient.summaryCommentary',
           ...errorFields(error),
         });
       }
     }
-    logger.info('service.summary.success', {
-      from: 'MoneyService.summary',
+    logger.info('service.report.success', {
+      from: 'MoneyService.report',
       to: 'TelegramHandler',
       durationMs: elapsedMs(started),
       year: period.year,
       month: period.month,
-      entryCount: summary.entryCount,
+      entryCount: report.summary.entryCount,
+      rowCount: report.rows.length,
     });
-    return { text: response };
+    return {
+      text: response,
+      year: period.year,
+      month: period.month,
+      summary: report.summary,
+      rows: report.rows,
+    } satisfies ReportResult;
+  }
+
+  /** @deprecated Use report. */
+  async summary(signal: AbortSignal, query: string): Promise<ServiceResult> {
+    const result = await this.report(signal, query);
+    return { text: result.text };
   }
 
   get pendingImageCount(): number {
@@ -383,5 +398,7 @@ export type {
   ImageInput,
   ImagePreparation,
   Ledger,
+  ReportResponse,
+  ReportResult,
   ServiceResult,
 } from './types.ts';

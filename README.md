@@ -20,7 +20,7 @@ The service uses the existing spreadsheet schema and remains compatible with leg
   - `18/07/2026 | income | (salary) thu lương 20tr tháng 7 | 20000000`
 - Legacy read compatibility for old numeric sheets `1` through `12` in Tiubot format.
 - Hidden `_money_bot_meta` worksheet for Telegram update idempotency.
-- `/summary` current-month totals across new and legacy sheets, with optional month arguments for older months.
+- `/report` current-month totals across new and legacy sheets, with optional month arguments for older months.
 - Required LLM parsing for free-text transactions, with local LM Studio/OpenAI-compatible endpoint support and OpenRouter support.
 - JPEG, PNG, or WebP receipt and completed bank-transfer image capture, with explicit confirmation before a Sheets write.
 
@@ -57,14 +57,14 @@ deno task telegram:webhook:info
 
 (The command is `deno task`; the split above is only avoided by shell wrapping.) `set` uses `TELEGRAM_WEBHOOK_URL`, preserves pending updates by default, and registers `max_connections: 1` with only `message` and `callback_query`. Use `--drop-pending-updates` only deliberately. `delete` stops delivery; it does not enable another transport.
 
-For local development, start the webhook server, expose it through a Deno Deploy tunnel or another public HTTPS tunnel, set `TELEGRAM_WEBHOOK_URL` to the tunnel URL plus `/telegram/webhook`, and run `deno task telegram:webhook:set`. Prefer a separate development bot because each bot token has one active webhook URL. Restore the production URL with `set` after testing. Test `/start`, a text transaction, `/summary`, image confirmation, and image cancellation through Telegram without opening the health URL.
+For local development, start the webhook server, expose it through a Deno Deploy tunnel or another public HTTPS tunnel, set `TELEGRAM_WEBHOOK_URL` to the tunnel URL plus `/telegram/webhook`, and run `deno task telegram:webhook:set`. Prefer a separate development bot because each bot token has one active webhook URL. Restore the production URL with `set` after testing. Test `/start`, a text transaction, `/report`, image confirmation, and image cancellation through Telegram without opening the health URL.
 
 ## Telegram commands
 
 - `/start` - intro and quick actions
 - `/menu` - inline menu
-- `/summary` - current-month report
-- `/summary tháng 5`, `/summary 05/2026`, `/summary tháng trước` - report another month
+- `/report` - current-month report
+- `/report tháng 5`, `/report 05/2026`, `/report tháng trước` - report another month
 - `/help` - syntax help
 
 Ordinary text is sent to the configured LLM and treated as a transaction unless it is a command or a summary intent such as `chi tiêu tháng này`.
@@ -100,7 +100,7 @@ Columns:
 
 ### Legacy sheets
 
-Old Tiubot numeric sheets (`1` through `12`) remain unchanged. `/summary` reads legacy date-header groups and includes only rows under a matching `DD/MM/YYYY` date header for the current year/month.
+Old Tiubot numeric sheets (`1` through `12`) remain unchanged. `/report` reads legacy date-header groups and includes only rows under a matching `DD/MM/YYYY` date header for the current year/month.
 
 No automatic migration, cleanup, or de-duplication of historical rows is performed.
 

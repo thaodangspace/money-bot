@@ -1,5 +1,5 @@
 import type { Transaction } from '../../domain/transaction.ts';
-import type { MonthlySummary } from '../../domain/summary.ts';
+import type { MonthlyLedgerReport } from '../../domain/report.ts';
 
 export const METADATA_SCHEMA_VERSION = '1';
 export const METADATA_HEADERS = [
@@ -69,7 +69,7 @@ export interface SheetsLedger {
     updateId: number,
     transactions: Transaction[],
   ): Promise<AppendBatchResult>;
-  monthlySummary(signal: AbortSignal, year: number, month: number): Promise<MonthlySummary>;
+  monthlyReport(signal: AbortSignal, year: number, month: number): Promise<MonthlyLedgerReport>;
 }
 
 export class SheetNotFoundError extends Error {

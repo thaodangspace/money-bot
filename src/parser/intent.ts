@@ -10,7 +10,7 @@ const SUMMARY_INTENT_PATTERNS = [
   /\bxem\s*chi\s+thang\s+(?:0?[1-9]|1[0-2])(?:\b|\/)/u,
   /\bthong\s*ke\s+thang\s+(?:0?[1-9]|1[0-2])(?:\b|\/)/u,
   /\bbao\s*cao\s+thang\s+(?:0?[1-9]|1[0-2])(?:\b|\/)/u,
-  /^\/summary(?:\s|$)/u,
+  /^\/(?:report|summary)(?:\s|$)/u,
 ];
 
 export function detectMonthlySummaryIntent(input: string): boolean {

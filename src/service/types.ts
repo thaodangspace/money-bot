@@ -1,3 +1,5 @@
+import type { LedgerReportRow, MonthlyLedgerReport } from '../domain/report.ts';
+export type { LedgerReportRow, MonthlyLedgerReport } from '../domain/report.ts';
 import type { MonthlySummary } from '../domain/summary.ts';
 import type { Transaction } from '../domain/transaction.ts';
 import type { ImageTransactionExtraction } from '../adapters/ai/image_types.ts';
@@ -16,7 +18,12 @@ export interface Ledger {
     updateId: number,
     transactions: Transaction[],
   ): Promise<AppendBatchResult>;
-  monthlySummary(signal: AbortSignal, year: number, month: number): Promise<MonthlySummary>;
+  /** Preferred single-read API used to build reports. */
+  monthlyReport: (
+    signal: AbortSignal,
+    year: number,
+    month: number,
+  ) => Promise<MonthlyLedgerReport>;
 }
 
 export interface AIParser {
@@ -49,6 +56,16 @@ export interface ServiceResult {
   usedAI?: boolean;
   duplicate?: boolean;
 }
+
+export interface ReportResult {
+  text: string;
+  year: number;
+  month: number;
+  summary: MonthlySummary;
+  rows: LedgerReportRow[];
+}
+
+export type ReportResponse = ReportResult | ServiceResult;
 export interface ServiceOptions {
   timeZone?: string;
   clock?: () => Date;

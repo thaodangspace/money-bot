@@ -7,6 +7,7 @@ import { SheetsRepository } from './repository.ts';
 import {
   type BatchUpdateRequest,
   METADATA_HEADERS,
+  SheetNotFoundError,
   type SheetsAPI,
   type Spreadsheet,
 } from './types.ts';
@@ -46,6 +47,15 @@ class FakeSheets implements SheetsAPI {
       }
     }
     return Promise.resolve();
+  }
+}
+
+class MissingSheets extends FakeSheets {
+  override getValues(signal: AbortSignal, id: string, range: string): Promise<string[][]> {
+    if (range.includes("'2026-09'") || range.includes("'9'")) {
+      return Promise.reject(new SheetNotFoundError('worksheet missing'));
+    }
+    return super.getValues(signal, id, range);
   }
 }
 
@@ -120,11 +130,27 @@ Deno.test('repository combines flat and legacy summary rows safely', async () =>
     ['wrong month', '999999', '999999'],
   ]);
   const repository = new SheetsRepository({ api, spreadsheetId: 'spreadsheet' });
-  const summary = await repository.monthlySummary(new AbortController().signal, 2026, 7);
+  const report = await repository.monthlyReport(new AbortController().signal, 2026, 7);
+  const summary = report.summary;
   if (
     summary.totalExpenses !== 200_000 || summary.totalIncome !== 2_200_000 ||
-    summary.entryCount !== 4 || summary.balance !== 2_000_000
+    summary.entryCount !== 4 || summary.balance !== 2_000_000 ||
+    report.rows.length !== summary.entryCount || report.rows[0]?.content !== 'food' ||
+    report.rows[1]?.content !== 'meal' || report.rows[2]?.content !== 'meal' ||
+    report.rows[3]?.content !== 'salary' || report.rows[1]?.type !== 'expense' ||
+    report.rows[2]?.type !== 'income'
   ) {
-    throw new Error(JSON.stringify(summary));
+    throw new Error(JSON.stringify(report));
+  }
+});
+
+Deno.test('repository treats missing current and legacy worksheets as an empty report', async () => {
+  const repository = new SheetsRepository({
+    api: new MissingSheets(),
+    spreadsheetId: 'spreadsheet',
+  });
+  const report = await repository.monthlyReport(new AbortController().signal, 2026, 9);
+  if (report.rows.length !== 0 || report.summary.entryCount !== 0) {
+    throw new Error(JSON.stringify(report));
   }
 });
