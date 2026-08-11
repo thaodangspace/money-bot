@@ -4,6 +4,7 @@ import {
   boundText,
   duplicateText,
   formatDong,
+  formatSummary,
   successText,
   vietnameseMonthName,
 } from './format.ts';
@@ -44,9 +45,13 @@ Deno.test('success and duplicate text contain transaction details', () => {
   }
 });
 
-Deno.test('summary formatting handles empty and populated summaries', () => {
-  const empty = newMonthlySummary(2026, 7, 0, 0, 0);
-  if (!empty || !formatDong(empty.balance)) throw new Error('summary setup failed');
+Deno.test('summary formatting includes investment and saving totals', () => {
+  const summary = newMonthlySummary(2026, 7, 100, 200, 4, 50, 25);
+  const text = formatSummary(summary);
+  if (
+    !text.includes('Tổng đầu tư: 50 ₫') || !text.includes('Tổng tiết kiệm: 25 ₫') ||
+    !text.includes('Còn lại: 25 ₫')
+  ) throw new Error(text);
 });
 
 function equal<T>(actual: T, expected: T): void {

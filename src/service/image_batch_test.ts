@@ -49,6 +49,8 @@ class BatchLedger implements Ledger {
       month: 7,
       totalExpenses: 0,
       totalIncome: 0,
+      totalInvest: 0,
+      totalSaving: 0,
       balance: 0,
       entryCount: 0,
     });

@@ -33,12 +33,17 @@ Deno.test('report Markdown preserves every row and protects table cells', () => 
       month: 8,
       totalExpenses: 150000,
       totalIncome: 0,
-      balance: -150000,
+      totalInvest: 50000,
+      totalSaving: 25000,
+      balance: -125000,
       entryCount: 1,
     },
     rows: [{ date: '18/08/2026', type: 'expense', content: 'ăn | tối\nnhà', amount: 150000 }],
   });
-  if (!markdown.includes('Money report')) throw new Error('report setup failed');
+  if (
+    !markdown.includes('Total investments: 50000 VND') ||
+    !markdown.includes('Total savings: 25000 VND') || !markdown.includes('Money report')
+  ) throw new Error('report setup failed');
   if (!markdown.includes('ăn \\| tối nhà')) throw new Error(markdown);
   if (!markdown.includes('| 1 | 18/08/2026 | expense |')) throw new Error(markdown);
 
@@ -46,7 +51,16 @@ Deno.test('report Markdown preserves every row and protects table cells', () => 
     text: 'report',
     year: 2026,
     month: 8,
-    summary: { year: 2026, month: 8, totalExpenses: 1, totalIncome: 0, balance: -1, entryCount: 1 },
+    summary: {
+      year: 2026,
+      month: 8,
+      totalExpenses: 1,
+      totalIncome: 0,
+      totalInvest: 0,
+      totalSaving: 0,
+      balance: -1,
+      entryCount: 1,
+    },
     rows: [{ date: '18/08/2026', type: 'expense', content: String.raw`foo\|bar`, amount: 1 }],
   });
   if (!backslashPipe.includes(String.raw`foo\\\|bar`)) throw new Error(backslashPipe);
@@ -57,7 +71,16 @@ Deno.test('zero-transaction reports still include metadata and a table', () => {
     text: 'report',
     year: 2026,
     month: 9,
-    summary: { year: 2026, month: 9, totalExpenses: 0, totalIncome: 0, balance: 0, entryCount: 0 },
+    summary: {
+      year: 2026,
+      month: 9,
+      totalExpenses: 0,
+      totalIncome: 0,
+      totalInvest: 0,
+      totalSaving: 0,
+      balance: 0,
+      entryCount: 0,
+    },
     rows: [],
   });
   if (!markdown.includes('No transactions.') || !markdown.includes('| # | Date | Type |')) {

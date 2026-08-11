@@ -1,7 +1,9 @@
-export type TransactionType = 'expense' | 'income';
+export type TransactionType = 'expense' | 'income' | 'invest' | 'saving';
 
 export const TRANSACTION_EXPENSE: TransactionType = 'expense';
 export const TRANSACTION_INCOME: TransactionType = 'income';
+export const TRANSACTION_INVEST: TransactionType = 'invest';
+export const TRANSACTION_SAVING: TransactionType = 'saving';
 
 /** A calendar date with no timezone or time-of-day component. */
 export type PlainDate = `${number}-${number}-${number}`;
@@ -17,7 +19,8 @@ export interface Transaction {
 }
 
 export function isTransactionType(value: string): value is TransactionType {
-  return value === TRANSACTION_EXPENSE || value === TRANSACTION_INCOME;
+  return value === TRANSACTION_EXPENSE || value === TRANSACTION_INCOME ||
+    value === TRANSACTION_INVEST || value === TRANSACTION_SAVING;
 }
 
 export function normalizeContentText(input: string | undefined): string {
@@ -36,7 +39,7 @@ export function transactionContent(transaction: Transaction): string {
 export function validateTransaction(transaction: Transaction): void {
   const errors: string[] = [];
   if (!isTransactionType(transaction.type)) {
-    errors.push('transaction type must be "expense" or "income"');
+    errors.push('transaction type must be "expense", "income", "invest", or "saving"');
   }
   if (!transaction.category.trim()) errors.push('transaction category is required');
   if (!Number.isSafeInteger(transaction.amount) || transaction.amount <= 0) {

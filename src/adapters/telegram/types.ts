@@ -1,6 +1,7 @@
 import type {
   ImageInput,
   ImagePreparation,
+  RecordOptions,
   ReportResponse,
   ServiceResult,
 } from '../../service/types.ts';
@@ -22,7 +23,12 @@ export interface Messenger {
 }
 
 export interface MoneyServicePort {
-  record(signal: AbortSignal, updateId: number, text: string): Promise<ServiceResult>;
+  record(
+    signal: AbortSignal,
+    updateId: number,
+    text: string,
+    options?: RecordOptions,
+  ): Promise<ServiceResult>;
   prepareImage(signal: AbortSignal, updateId: number, input: ImageInput): Promise<ImagePreparation>;
   confirmImage(signal: AbortSignal, token: string): Promise<ServiceResult>;
   cancelImage(signal: AbortSignal, token: string): Promise<ServiceResult>;

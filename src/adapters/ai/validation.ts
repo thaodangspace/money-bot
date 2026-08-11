@@ -28,7 +28,7 @@ export const TRANSACTION_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    type: { type: 'string', enum: ['expense', 'income'] },
+    type: { type: 'string', enum: ['expense', 'income', 'invest', 'saving'] },
     category: { type: 'string', minLength: 1, maxLength: MAX_AI_CATEGORY_RUNES },
     amount: { type: 'integer', minimum: 1 },
     note: { type: 'string', maxLength: MAX_AI_NOTE_RUNES },

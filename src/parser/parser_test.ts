@@ -10,6 +10,8 @@ import {
 import {
   TRANSACTION_EXPENSE,
   TRANSACTION_INCOME,
+  TRANSACTION_INVEST,
+  TRANSACTION_SAVING,
   transactionContent,
 } from '../domain/transaction.ts';
 
@@ -155,6 +157,24 @@ Deno.test('transaction parsing matches Vietnamese examples', () => {
     equal(actual.type, type);
     equal(transactionContent(actual), content);
   }
+});
+
+Deno.test('forced transaction types preserve the grammar and override income prefixes', () => {
+  const invest = parseTransaction('crypto 5tr BTC', { type: TRANSACTION_INVEST });
+  equal(invest.type, TRANSACTION_INVEST);
+  equal(invest.category, 'Crypto');
+  equal(invest.amount, 5_000_000);
+  equal(invest.note, 'BTC');
+
+  const saving = parseTransaction('bank 10tr Vietcombank', { type: TRANSACTION_SAVING });
+  equal(saving.type, TRANSACTION_SAVING);
+  equal(saving.category, 'Bank');
+  equal(saving.amount, 10_000_000);
+  equal(saving.note, 'Vietcombank');
+
+  const forced = parseTransaction('thu lương 2tr', { type: TRANSACTION_INVEST });
+  equal(forced.type, TRANSACTION_INVEST);
+  equal(forced.category, 'Lương');
 });
 
 Deno.test('transaction parsing rejects invalid input and preserves Unicode limits', () => {

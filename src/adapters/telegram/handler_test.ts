@@ -1,7 +1,7 @@
 import { TelegramAuthorizer } from './authz.ts';
 import { TelegramHandler } from './handler.ts';
 import type { DocumentAttachment, InlineKeyboard, Messenger, MoneyServicePort } from './types.ts';
-import type { ReportResponse, ServiceResult } from '../../service/types.ts';
+import type { RecordOptions, ReportResponse, ServiceResult } from '../../service/types.ts';
 
 class FakeMessenger implements Messenger {
   messages: string[] = [];
@@ -29,6 +29,7 @@ class FakeMessenger implements Messenger {
 class FakeService implements MoneyServicePort {
   reportCalls = 0;
   reportQueries: string[] = [];
+  recordCalls: Array<{ updateId: number; text: string; options?: RecordOptions }> = [];
   summaryIntent = false;
   report(_signal: AbortSignal, query: string): Promise<ReportResponse> {
     this.reportCalls++;
@@ -51,7 +52,13 @@ class FakeService implements MoneyServicePort {
   isSummaryIntent() {
     return this.summaryIntent;
   }
-  record(): Promise<ServiceResult> {
+  record(
+    _signal: AbortSignal,
+    updateId: number,
+    text: string,
+    options?: RecordOptions,
+  ): Promise<ServiceResult> {
+    this.recordCalls.push({ updateId, text, options });
     return Promise.resolve({ text: 'record' });
   }
   prepareImage(): never {
@@ -149,6 +156,47 @@ Deno.test('document delivery failure keeps the summary and sends a concise fallb
   if (
     service.reportCalls !== 1 || messenger.messages.length !== 2 ||
     !messenger.messages[1]?.includes('không thể gửi tệp')
+  ) throw new Error(JSON.stringify({ service, messenger }));
+});
+
+Deno.test('invest and saving commands route typed records with update IDs', async () => {
+  const messenger = new FakeMessenger();
+  const service = new FakeService();
+  const handler = new TelegramHandler({
+    messenger,
+    service,
+    authorizer: new TelegramAuthorizer(42),
+  });
+  await handler.handleUpdate(
+    new AbortController().signal,
+    { ...update('/invest@money_bot crypto 5tr BTC'), id: 51 },
+  );
+  await handler.handleUpdate(
+    new AbortController().signal,
+    { ...update('/saving bank 10tr VCB'), id: 52 },
+  );
+  if (
+    service.recordCalls.length !== 2 || service.recordCalls[0]?.updateId !== 51 ||
+    service.recordCalls[0]?.text !== 'crypto 5tr BTC' ||
+    service.recordCalls[0]?.options?.type !== 'invest' ||
+    service.recordCalls[0]?.options?.originalMessage !== '/invest@money_bot crypto 5tr BTC' ||
+    service.recordCalls[1]?.updateId !== 52 || service.recordCalls[1]?.options?.type !== 'saving'
+  ) throw new Error(JSON.stringify(service.recordCalls));
+});
+
+Deno.test('typed commands without arguments show usage without recording', async () => {
+  const messenger = new FakeMessenger();
+  const service = new FakeService();
+  const handler = new TelegramHandler({
+    messenger,
+    service,
+    authorizer: new TelegramAuthorizer(42),
+  });
+  await handler.handleUpdate(new AbortController().signal, update('/invest'));
+  await handler.handleUpdate(new AbortController().signal, update('/saving@money_bot'));
+  if (
+    service.recordCalls.length !== 0 || !messenger.messages[0]?.includes('/invest <item>') ||
+    !messenger.messages[1]?.includes('/saving <item>')
   ) throw new Error(JSON.stringify({ service, messenger }));
 });
 

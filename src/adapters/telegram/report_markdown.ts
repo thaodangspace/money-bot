@@ -7,6 +7,8 @@ export function renderReportMarkdown(report: ReportResult): string {
     '',
     `- Total expenses: ${report.summary.totalExpenses} VND`,
     `- Total income: ${report.summary.totalIncome} VND`,
+    `- Total investments: ${report.summary.totalInvest} VND`,
+    `- Total savings: ${report.summary.totalSaving} VND`,
     `- Balance: ${report.summary.balance} VND`,
     `- Transactions: ${report.summary.entryCount}`,
     '',
