@@ -27,5 +27,5 @@ export function renderReportMarkdown(report: ReportResult): string {
 }
 
 function cell(value: string): string {
-  return value.replaceAll('|', '\\|').replace(/[\r\n]+/gu, ' ');
+  return value.replace(/[\r\n]+/gu, ' ').replaceAll('\\', '\\\\').replaceAll('|', '\\|');
 }

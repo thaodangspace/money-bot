@@ -6,6 +6,7 @@ import type { ReportResponse, ServiceResult } from '../../service/types.ts';
 class FakeMessenger implements Messenger {
   messages: string[] = [];
   documents: DocumentAttachment[] = [];
+  failDocument = false;
 
   sendMessage(_signal: AbortSignal, _chatId: number, text: string, _keyboard?: InlineKeyboard) {
     this.messages.push(text);
@@ -16,6 +17,7 @@ class FakeMessenger implements Messenger {
     _chatId: number,
     document: DocumentAttachment,
   ) {
+    if (this.failDocument) return Promise.reject(new Error('upload failed'));
     this.documents.push(document);
     return Promise.resolve();
   }
@@ -26,8 +28,11 @@ class FakeMessenger implements Messenger {
 
 class FakeService implements MoneyServicePort {
   reportCalls = 0;
-  report(): Promise<ReportResponse> {
+  reportQueries: string[] = [];
+  summaryIntent = false;
+  report(_signal: AbortSignal, query: string): Promise<ReportResponse> {
     this.reportCalls++;
+    this.reportQueries.push(query);
     return Promise.resolve({
       text: '📊 Báo cáo',
       year: 2026,
@@ -44,7 +49,7 @@ class FakeService implements MoneyServicePort {
     });
   }
   isSummaryIntent() {
-    return false;
+    return this.summaryIntent;
   }
   record(): Promise<ServiceResult> {
     return Promise.resolve({ text: 'record' });
@@ -73,6 +78,13 @@ function update(text: string) {
   } as const;
 }
 
+function callbackUpdate(data: string) {
+  return {
+    id: 2,
+    callback: { id: 'callback', chatId: 42, userId: 42, messageId: 1, data },
+  } as const;
+}
+
 Deno.test('report command sends summary and one Markdown document', async () => {
   const messenger = new FakeMessenger();
   const service = new FakeService();
@@ -90,6 +102,54 @@ Deno.test('report command sends summary and one Markdown document', async () => 
   if (messenger.documents[0]?.filename !== 'money-report-2026-08.md') {
     throw new Error(messenger.documents[0]?.filename);
   }
+});
+
+Deno.test('report callback sends summary and one Markdown document', async () => {
+  const messenger = new FakeMessenger();
+  const service = new FakeService();
+  const handler = new TelegramHandler({
+    messenger,
+    service,
+    authorizer: new TelegramAuthorizer(42),
+  });
+  await handler.handleUpdate(new AbortController().signal, callbackUpdate('cmd:report'));
+  if (service.reportCalls !== 1 || messenger.documents.length !== 1) {
+    throw new Error(JSON.stringify({ service, messenger }));
+  }
+});
+
+Deno.test('natural-language report intent sends the report attachment', async () => {
+  const messenger = new FakeMessenger();
+  const service = new FakeService();
+  service.summaryIntent = true;
+  const handler = new TelegramHandler({
+    messenger,
+    service,
+    authorizer: new TelegramAuthorizer(42),
+  });
+  await handler.handleUpdate(new AbortController().signal, update('chi tiêu tháng này'));
+  if (
+    service.reportCalls !== 1 || service.reportQueries[0] !== 'chi tiêu tháng này' ||
+    messenger.documents.length !== 1
+  ) {
+    throw new Error(JSON.stringify({ service, messenger }));
+  }
+});
+
+Deno.test('document delivery failure keeps the summary and sends a concise fallback', async () => {
+  const messenger = new FakeMessenger();
+  messenger.failDocument = true;
+  const service = new FakeService();
+  const handler = new TelegramHandler({
+    messenger,
+    service,
+    authorizer: new TelegramAuthorizer(42),
+  });
+  await handler.handleUpdate(new AbortController().signal, update('/report'));
+  if (
+    service.reportCalls !== 1 || messenger.messages.length !== 2 ||
+    !messenger.messages[1]?.includes('không thể gửi tệp')
+  ) throw new Error(JSON.stringify({ service, messenger }));
 });
 
 Deno.test('summary command gives migration guidance without running a report', async () => {

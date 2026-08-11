@@ -41,6 +41,28 @@ Deno.test('report Markdown preserves every row and protects table cells', () => 
   if (!markdown.includes('Money report')) throw new Error('report setup failed');
   if (!markdown.includes('ăn \\| tối nhà')) throw new Error(markdown);
   if (!markdown.includes('| 1 | 18/08/2026 | expense |')) throw new Error(markdown);
+
+  const backslashPipe = renderReportMarkdown({
+    text: 'report',
+    year: 2026,
+    month: 8,
+    summary: { year: 2026, month: 8, totalExpenses: 1, totalIncome: 0, balance: -1, entryCount: 1 },
+    rows: [{ date: '18/08/2026', type: 'expense', content: String.raw`foo\|bar`, amount: 1 }],
+  });
+  if (!backslashPipe.includes(String.raw`foo\\\|bar`)) throw new Error(backslashPipe);
+});
+
+Deno.test('zero-transaction reports still include metadata and a table', () => {
+  const markdown = renderReportMarkdown({
+    text: 'report',
+    year: 2026,
+    month: 9,
+    summary: { year: 2026, month: 9, totalExpenses: 0, totalIncome: 0, balance: 0, entryCount: 0 },
+    rows: [],
+  });
+  if (!markdown.includes('No transactions.') || !markdown.includes('| # | Date | Type |')) {
+    throw new Error(markdown);
+  }
 });
 
 Deno.test('Telegram documents use multipart sendDocument with UTF-8 bytes', async () => {
