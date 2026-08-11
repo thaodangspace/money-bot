@@ -76,7 +76,7 @@ export function usageText(): string {
     '🤷 Mình chưa hiểu giao dịch này.',
     'Vui lòng nhập dạng: ăn tối 150k pizza',
     'Thu nhập: thu lương 20tr tháng 7',
-    "Báo cáo: /summary hoặc 'chi tiêu tháng này'",
+    "Báo cáo: /report hoặc 'chi tiêu tháng này'",
   ].join('\n');
 }
 
@@ -95,12 +95,15 @@ export function aiInvalidResponseText(): string {
   return '🤖 Mình không đọc được phản hồi từ AI để ghi giao dịch. Vui lòng thử gửi lại tin nhắn.';
 }
 
-export function summaryUsageText(): string {
+export function reportUsageText(): string {
   return [
     '🤷 Mình chưa hiểu tháng cần báo cáo.',
-    'Ví dụ: /summary, /summary tháng 5, /summary 05/2026, /summary tháng trước.',
+    'Ví dụ: /report, /report tháng 5, /report 05/2026, /report tháng trước.',
   ].join('\n');
 }
+
+/** @deprecated Use reportUsageText. */
+export const summaryUsageText = reportUsageText;
 
 export function formatSummary(summary: MonthlySummary): string {
   const lines = [`📊 Báo cáo ${vietnameseMonthName(summary.month)} ${summary.year}:`, ''];

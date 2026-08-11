@@ -120,11 +120,14 @@ Deno.test('repository combines flat and legacy summary rows safely', async () =>
     ['wrong month', '999999', '999999'],
   ]);
   const repository = new SheetsRepository({ api, spreadsheetId: 'spreadsheet' });
-  const summary = await repository.monthlySummary(new AbortController().signal, 2026, 7);
+  const report = await repository.monthlyReport(new AbortController().signal, 2026, 7);
+  const summary = report.summary;
   if (
     summary.totalExpenses !== 200_000 || summary.totalIncome !== 2_200_000 ||
-    summary.entryCount !== 4 || summary.balance !== 2_000_000
+    summary.entryCount !== 4 || summary.balance !== 2_000_000 ||
+    report.rows.length !== summary.entryCount || report.rows[0]?.content !== 'food' ||
+    report.rows[1]?.content !== 'meal'
   ) {
-    throw new Error(JSON.stringify(summary));
+    throw new Error(JSON.stringify(report));
   }
 });

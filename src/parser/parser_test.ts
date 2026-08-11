@@ -1,6 +1,6 @@
 import { InvalidAmountError, parseAmount } from './amount.ts';
 import { detectMonthlySummaryIntent } from './intent.ts';
-import { parseMonthlySummaryPeriod } from './summary_period.ts';
+import { parseMonthlySummaryPeriod, parseReportPeriod } from './summary_period.ts';
 import {
   MAX_CATEGORY_RUNES,
   MAX_INPUT_RUNES,
@@ -109,6 +109,24 @@ Deno.test('summary period parsing supports relative, named, and numeric periods'
   for (const input of ['tháng 13', 'foo', '2025-13']) {
     if (parseMonthlySummaryPeriod(input, now)) throw new Error(`accepted: ${input}`);
   }
+});
+
+Deno.test('report period parsing supports the renamed command and January rollover', () => {
+  const now = new Date('2026-01-18T10:00:00Z');
+  const cases: Array<[string, number, number]> = [
+    ['/report', 2026, 1],
+    ['/report tháng trước', 2025, 12],
+    ['/report tháng 5', 2026, 5],
+    ['/report 05/2026', 2026, 5],
+    ['/report 2026-05', 2026, 5],
+  ];
+  for (const [input, year, month] of cases) {
+    const actual = parseReportPeriod(input, now);
+    if (!actual || actual.year !== year || actual.month !== month) {
+      throw new Error(`${input}: ${JSON.stringify(actual)}`);
+    }
+  }
+  if (parseReportPeriod('/summary', now)) throw new Error('legacy command parsed as report');
 });
 
 Deno.test('transaction parsing matches Vietnamese examples', () => {

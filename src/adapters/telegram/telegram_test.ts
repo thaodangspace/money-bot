@@ -1,6 +1,8 @@
 import { TelegramAuthorizer } from './authz.ts';
+import { TelegramClient } from './client.ts';
 import { chunkText, markdownV2 } from './format.ts';
 import { detectImageMime, TelegramImageFetcher } from './image_fetcher.ts';
+import { renderReportMarkdown } from './report_markdown.ts';
 
 Deno.test('Telegram authorization requires the allowed private user and chat', () => {
   const authorizer = new TelegramAuthorizer(42);
@@ -18,6 +20,59 @@ Deno.test('Telegram Markdown escaping and rune chunking are safe', () => {
   const chunks = chunkText('😀'.repeat(5), 2);
   if (chunks.length !== 3 || chunks[0] !== '😀😀' || chunks[2] !== '😀') {
     throw new Error(JSON.stringify(chunks));
+  }
+});
+
+Deno.test('report Markdown preserves every row and protects table cells', () => {
+  const markdown = renderReportMarkdown({
+    text: 'report',
+    year: 2026,
+    month: 8,
+    summary: {
+      year: 2026,
+      month: 8,
+      totalExpenses: 150000,
+      totalIncome: 0,
+      balance: -150000,
+      entryCount: 1,
+    },
+    rows: [{ date: '18/08/2026', type: 'expense', content: 'ăn | tối\nnhà', amount: 150000 }],
+  });
+  if (!markdown.includes('Money report')) throw new Error('report setup failed');
+  if (!markdown.includes('ăn \\| tối nhà')) throw new Error(markdown);
+  if (!markdown.includes('| 1 | 18/08/2026 | expense |')) throw new Error(markdown);
+});
+
+Deno.test('Telegram documents use multipart sendDocument with UTF-8 bytes', async () => {
+  let requestURL = '';
+  let requestInit: RequestInit | undefined;
+  const client = new TelegramClient({
+    token: 'token',
+    apiBaseURL: 'https://telegram.test',
+    fetcher: (input, init) => {
+      requestURL = String(input);
+      requestInit = init;
+      return Promise.resolve(new Response('{"ok":true}', { status: 200 }));
+    },
+  });
+  const bytes = new TextEncoder().encode('# Báo cáo');
+  await client.sendDocument(new AbortController().signal, 42, {
+    filename: 'money-report-2026-08.md',
+    mimeType: 'text/markdown; charset=utf-8',
+    data: bytes,
+  });
+  if (!requestURL.endsWith('/sendDocument') || !(requestInit?.body instanceof FormData)) {
+    throw new Error('document was not sent as multipart');
+  }
+  const file = requestInit.body.get('document');
+  if (
+    !(file instanceof File) || file.name !== 'money-report-2026-08.md' ||
+    file.type !== 'text/markdown; charset=utf-8'
+  ) {
+    throw new Error('document metadata mismatch');
+  }
+  if (new TextDecoder().decode(await file.arrayBuffer()) !== '# Báo cáo') {
+    throw new Error('document bytes mismatch');
   }
 });
 

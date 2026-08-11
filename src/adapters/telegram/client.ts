@@ -1,5 +1,5 @@
 import { isTelegramParseError, markdownV2 } from './format.ts';
-import type { InlineKeyboard, Messenger } from './types.ts';
+import type { DocumentAttachment, InlineKeyboard, Messenger } from './types.ts';
 import { elapsedMs, errorFields, type Logger, nullLogger } from '../../shared/logger.ts';
 
 export interface TelegramClientOptions {
@@ -73,6 +73,24 @@ export class TelegramClient implements Messenger {
     }
   }
 
+  async sendDocument(
+    signal: AbortSignal,
+    chatId: number,
+    document: DocumentAttachment,
+    caption?: string,
+  ): Promise<void> {
+    const form = new FormData();
+    form.set('chat_id', String(chatId));
+    const bytes = new Uint8Array(document.data);
+    form.set(
+      'document',
+      new Blob([bytes.buffer as ArrayBuffer], { type: document.mimeType }),
+      document.filename,
+    );
+    if (caption) form.set('caption', caption);
+    await this.#callMultipart(signal, 'sendDocument', form);
+  }
+
   async answerCallback(signal: AbortSignal, callbackId: string, text: string): Promise<void> {
     await this.#call(signal, 'answerCallbackQuery', { callback_query_id: callbackId, text });
   }
@@ -86,10 +104,29 @@ export class TelegramClient implements Messenger {
     return `${this.#apiBaseURL}/file/bot${this.#token}/${path}`;
   }
 
-  async #call(
+  #call(
     signal: AbortSignal,
     method: string,
     body: Record<string, unknown>,
+  ): Promise<{ result?: unknown }> {
+    return this.#request(signal, method, {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  #callMultipart(
+    signal: AbortSignal,
+    method: string,
+    body: FormData,
+  ): Promise<{ result?: unknown }> {
+    return this.#request(signal, method, { body });
+  }
+
+  async #request(
+    signal: AbortSignal,
+    method: string,
+    init: { headers?: HeadersInit; body: BodyInit },
   ): Promise<{ result?: unknown }> {
     const logger = this.#logger.forSignal(signal);
     const started = performance.now();
@@ -103,8 +140,7 @@ export class TelegramClient implements Messenger {
       response = await this.#fetcher(`${this.#apiBaseURL}/bot${this.#token}/${method}`, {
         method: 'POST',
         signal,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        ...init,
       });
     } catch (error) {
       logger.error('external.call.failed', {

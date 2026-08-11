@@ -2,14 +2,17 @@ import { TelegramAuthorizer } from './authz.ts';
 import { chunkText, DEFAULT_MAX_MESSAGE_RUNES } from './format.ts';
 import {
   CALLBACK_HELP,
+  CALLBACK_LEGACY_SUMMARY,
   CALLBACK_MENU,
-  CALLBACK_SUMMARY,
+  CALLBACK_REPORT,
   helpText,
   quickMenuKeyboard,
   quickMenuText,
   startKeyboard,
   startText,
+  summaryMigrationText,
 } from './menu.ts';
+import { renderReportMarkdown } from './report_markdown.ts';
 import { errorFields, type Logger, nullLogger } from '../../shared/logger.ts';
 import type {
   Callback,
@@ -76,7 +79,7 @@ export class TelegramHandler {
     const text = message.text.trim();
     if (!text) return;
     if (text.startsWith('/')) return this.#handleCommand(signal, message.chatId, text);
-    if (this.#service.isSummaryIntent(text)) return this.#sendSummary(signal, message.chatId, text);
+    if (this.#service.isSummaryIntent(text)) return this.#sendReport(signal, message.chatId, text);
     return this.#sendRecord(signal, updateId, message.chatId, text);
   }
 
@@ -152,9 +155,9 @@ export class TelegramHandler {
       const result = await this.#service.cancelImage(signal, cancelled);
       return this.#sendChunks(signal, callback.chatId, result.text);
     }
-    if (callback.data === CALLBACK_SUMMARY) {
+    if (callback.data === CALLBACK_REPORT || callback.data === CALLBACK_LEGACY_SUMMARY) {
       await this.#messenger.answerCallback(signal, callback.id, 'OK');
-      return this.#sendSummary(signal, callback.chatId, '');
+      return this.#sendReport(signal, callback.chatId, '');
     }
     if (callback.data === CALLBACK_HELP) {
       await this.#messenger.answerCallback(signal, callback.id, 'OK');
@@ -173,8 +176,10 @@ export class TelegramHandler {
         return this.#sendChunks(signal, chatId, startText(), startKeyboard());
       case 'menu':
         return this.#sendChunks(signal, chatId, quickMenuText(), quickMenuKeyboard());
+      case 'report':
+        return this.#sendReport(signal, chatId, commandArgs(text));
       case 'summary':
-        return this.#sendSummary(signal, chatId, commandArgs(text));
+        return this.#sendChunks(signal, chatId, summaryMigrationText());
       case 'help':
         return this.#sendChunks(signal, chatId, helpText());
       default:
@@ -192,9 +197,35 @@ export class TelegramHandler {
     await this.#sendChunks(signal, chatId, result.text);
   }
 
-  async #sendSummary(signal: AbortSignal, chatId: number, query: string): Promise<void> {
-    const result = await this.#service.summary(signal, query);
+  async #sendReport(signal: AbortSignal, chatId: number, query: string): Promise<void> {
+    const result = await this.#service.report(signal, query);
     await this.#sendChunks(signal, chatId, result.text);
+    if (!('rows' in result)) return;
+
+    const markdown = renderReportMarkdown(result);
+    const data = new TextEncoder().encode(markdown);
+    try {
+      await this.#messenger.sendDocument(signal, chatId, {
+        filename: `money-report-${result.year}-${String(result.month).padStart(2, '0')}.md`,
+        mimeType: 'text/markdown; charset=utf-8',
+        data,
+      });
+    } catch (error) {
+      this.#logger.forSignal(signal).error('handler.report.document_failed', {
+        from: 'TelegramHandler',
+        to: 'Telegram API sendDocument',
+        year: result.year,
+        month: result.month,
+        rowCount: result.rows.length,
+        attachmentBytes: data.byteLength,
+        ...errorFields(error),
+      });
+      await this.#sendChunks(
+        signal,
+        chatId,
+        '⚠️ Báo cáo đã được gửi nhưng không thể gửi tệp Markdown. Vui lòng thử lại sau.',
+      );
+    }
   }
 
   async #sendChunks(

@@ -5,6 +5,7 @@ import {
   TRANSACTION_INCOME,
   validateTransaction,
 } from '../../domain/transaction.ts';
+import { type LedgerReportRow, type MonthlyLedgerReport } from '../../domain/report.ts';
 import { type MonthlySummary, newMonthlySummary } from '../../domain/summary.ts';
 import {
   type AppendBatchResult,
@@ -157,28 +158,27 @@ export class SheetsRepository {
     throw error;
   }
 
-  async monthlySummary(signal: AbortSignal, year: number, month: number): Promise<MonthlySummary> {
+  async monthlyReport(
+    signal: AbortSignal,
+    year: number,
+    month: number,
+  ): Promise<MonthlyLedgerReport> {
     const logger = this.#logger.forSignal(signal);
     const started = performance.now();
-    logger.info('ledger.summary.start', {
+    logger.info('ledger.report.start', {
       from: 'MoneyService',
-      to: 'SheetsRepository.monthlySummary',
+      to: 'SheetsRepository.monthlyReport',
       year,
       month,
     });
-    let totalExpenses = 0;
-    let totalIncome = 0;
-    let entryCount = 0;
+    const reportRows: LedgerReportRow[] = [];
     try {
       const rows = await this.#api.getValues(
         signal,
         this.#spreadsheetId,
         `${quoteSheet(monthSheet(year, month))}!A:D`,
       );
-      const result = summarizeFlatRows(rows, year, month);
-      totalExpenses += result.expenses;
-      totalIncome += result.income;
-      entryCount += result.count;
+      reportRows.push(...normalizeFlatRows(rows, year, month));
     } catch (error) {
       if (!(error instanceof SheetNotFoundError)) throw error;
     }
@@ -188,22 +188,31 @@ export class SheetsRepository {
         this.#spreadsheetId,
         `${quoteSheet(String(month))}!A2:D`,
       );
-      const result = summarizeLegacyRows(rows, year, month);
-      totalExpenses += result.expenses;
-      totalIncome += result.income;
-      entryCount += result.count;
+      reportRows.push(...normalizeLegacyRows(rows, year, month));
     } catch (error) {
       if (!(error instanceof SheetNotFoundError)) throw error;
     }
-    logger.info('ledger.summary.success', {
-      from: 'SheetsRepository.monthlySummary',
+
+    // The sheets API returns rows in sheet order. Sort by date while retaining that
+    // order for transactions that share a date.
+    const rows = reportRows.map((row, index) => ({ row, index })).sort((left, right) => {
+      const dateOrder = dateSortValue(left.row.date) - dateSortValue(right.row.date);
+      return dateOrder || left.index - right.index;
+    }).map(({ row }) => row);
+    const summary = summarizeReportRows(rows, year, month);
+    logger.info('ledger.report.success', {
+      from: 'SheetsRepository.monthlyReport',
       to: 'MoneyService',
       durationMs: elapsedMs(started),
       year,
       month,
-      entryCount,
+      entryCount: summary.entryCount,
     });
-    return newMonthlySummary(year, month, totalExpenses, totalIncome, entryCount);
+    return { summary, rows };
+  }
+
+  async monthlySummary(signal: AbortSignal, year: number, month: number): Promise<MonthlySummary> {
+    return (await this.monthlyReport(signal, year, month)).summary;
   }
 
   async #ensureSheets(signal: AbortSignal, targetSheets: string[]): Promise<void> {
@@ -309,57 +318,65 @@ function quoteSheet(title: string): string {
   return `'${title.replaceAll("'", "''")}'`;
 }
 
-function summarizeFlatRows(
-  rows: string[][],
-  year: number,
-  month: number,
-): { expenses: number; income: number; count: number } {
-  let expenses = 0;
-  let income = 0;
-  let count = 0;
+function normalizeFlatRows(rows: string[][], year: number, month: number): LedgerReportRow[] {
+  const normalized: LedgerReportRow[] = [];
   for (const row of rows) {
     if (row.length < 4 || !validDate(row[0]!, year, month)) continue;
     const amount = parseSheetAmount(row[3]!);
-    if (amount === undefined) continue;
-    if (row[1]!.trim().toLowerCase() === TRANSACTION_EXPENSE) {
-      expenses = safeAdd(expenses, amount);
-      count++;
-    }
-    if (row[1]!.trim().toLowerCase() === TRANSACTION_INCOME) {
-      income = safeAdd(income, amount);
-      count++;
-    }
-  }
-  return { expenses, income, count };
-}
-
-function summarizeLegacyRows(
-  rows: string[][],
-  year: number,
-  month: number,
-): { expenses: number; income: number; count: number } {
-  let include = false;
-  let expenses = 0;
-  let income = 0;
-  let count = 0;
-  for (const row of rows) {
-    if (/^\d{2}\/\d{2}\/\d{4}$/u.test((row[0] ?? '').trim())) {
-      include = validDate(row[0]!, year, month);
+    const type = (row[1] ?? '').trim().toLowerCase();
+    if (amount === undefined || (type !== TRANSACTION_EXPENSE && type !== TRANSACTION_INCOME)) {
       continue;
     }
-    if (!include || row.every((cell) => !cell.trim())) continue;
-    const expense = parseSheetAmount(row[1] ?? '');
-    const incomeValue = parseSheetAmount(row[2] ?? '');
-    if (expense !== undefined) {
-      expenses = safeAdd(expenses, expense);
-      count++;
+    normalized.push({ date: row[0]!.trim(), type, content: row[2] ?? '', amount });
+  }
+  return normalized;
+}
+
+function normalizeLegacyRows(rows: string[][], year: number, month: number): LedgerReportRow[] {
+  const normalized: LedgerReportRow[] = [];
+  let activeDate: string | undefined;
+  for (const row of rows) {
+    const date = (row[0] ?? '').trim();
+    if (/^\d{2}\/\d{2}\/\d{4}$/u.test(date)) {
+      activeDate = validDate(date, year, month) ? date : undefined;
+      continue;
     }
-    if (incomeValue !== undefined) {
-      income = safeAdd(income, incomeValue);
-      count++;
+    if (!activeDate || row.every((cell) => !cell.trim())) continue;
+    const expense = parseSheetAmount(row[1] ?? '');
+    const income = parseSheetAmount(row[2] ?? '');
+    if (expense !== undefined) {
+      normalized.push({
+        date: activeDate,
+        type: TRANSACTION_EXPENSE,
+        content: row[0] ?? '',
+        amount: expense,
+      });
+    }
+    if (income !== undefined) {
+      normalized.push({
+        date: activeDate,
+        type: TRANSACTION_INCOME,
+        content: row[0] ?? '',
+        amount: income,
+      });
     }
   }
-  return { expenses, income, count };
+  return normalized;
+}
+
+function summarizeReportRows(rows: LedgerReportRow[], year: number, month: number): MonthlySummary {
+  let expenses = 0;
+  let income = 0;
+  for (const row of rows) {
+    if (row.type === TRANSACTION_EXPENSE) expenses = safeAdd(expenses, row.amount);
+    else if (row.type === TRANSACTION_INCOME) income = safeAdd(income, row.amount);
+  }
+  return newMonthlySummary(year, month, expenses, income, rows.length);
+}
+
+function dateSortValue(value: string): number {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/u.exec(value);
+  return match ? Number(`${match[3]}${match[2]}${match[1]}`) : Number.MAX_SAFE_INTEGER;
 }
 
 function validDate(value: string, year: number, month: number): boolean {

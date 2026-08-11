@@ -1,4 +1,9 @@
-import type { ImageInput, ImagePreparation, ServiceResult } from '../../service/types.ts';
+import type {
+  ImageInput,
+  ImagePreparation,
+  ReportResponse,
+  ServiceResult,
+} from '../../service/types.ts';
 
 export interface Messenger {
   sendMessage(
@@ -6,6 +11,12 @@ export interface Messenger {
     chatId: number,
     text: string,
     keyboard?: InlineKeyboard,
+  ): Promise<void>;
+  sendDocument(
+    signal: AbortSignal,
+    chatId: number,
+    document: DocumentAttachment,
+    caption?: string,
   ): Promise<void>;
   answerCallback(signal: AbortSignal, callbackId: string, text: string): Promise<void>;
 }
@@ -15,8 +26,14 @@ export interface MoneyServicePort {
   prepareImage(signal: AbortSignal, updateId: number, input: ImageInput): Promise<ImagePreparation>;
   confirmImage(signal: AbortSignal, token: string): Promise<ServiceResult>;
   cancelImage(signal: AbortSignal, token: string): Promise<ServiceResult>;
-  summary(signal: AbortSignal, query: string): Promise<ServiceResult>;
+  report(signal: AbortSignal, query: string): Promise<ReportResponse>;
   isSummaryIntent(text: string): boolean;
+}
+
+export interface DocumentAttachment {
+  filename: string;
+  mimeType: string;
+  data: Uint8Array;
 }
 
 export type InlineKeyboard = Button[][];

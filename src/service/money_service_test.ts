@@ -6,6 +6,7 @@ import {
 import { AIAmbiguousInputError, InvalidAIOutputError } from '../adapters/ai/validation.ts';
 import { MoneyService } from './money_service.ts';
 import type { AIParser, AppendBatchResult, Ledger } from './types.ts';
+import type { MonthlyLedgerReport } from '../domain/report.ts';
 import type { MonthlySummary } from '../domain/summary.ts';
 import type { ImageTransactionExtraction } from '../adapters/ai/image_types.ts';
 
@@ -157,6 +158,10 @@ class BlockingLedger implements Ledger {
     return this.#status;
   }
 
+  monthlyReport(): Promise<MonthlyLedgerReport> {
+    return this.monthlySummary().then((summary) => ({ summary, rows: [] }));
+  }
+
   monthlySummary(): Promise<MonthlySummary> {
     return Promise.resolve({
       year: 2026,
@@ -206,14 +211,17 @@ Deno.test('failed image writes release the confirmation for retry', async () => 
       }
       return Promise.resolve({ status: 'written', targetSheets: ['2026-07'] });
     },
-    monthlySummary() {
+    monthlyReport() {
       return Promise.resolve({
-        year: 2026,
-        month: 7,
-        totalExpenses: 0,
-        totalIncome: 0,
-        balance: 0,
-        entryCount: 0,
+        summary: {
+          year: 2026,
+          month: 7,
+          totalExpenses: 0,
+          totalIncome: 0,
+          balance: 0,
+          entryCount: 0,
+        },
+        rows: [],
       });
     },
   };
@@ -276,6 +284,10 @@ class SimpleLedger implements Ledger {
   ): Promise<AppendBatchResult> {
     this.appended.push(...transactions);
     return Promise.resolve({ status: 'written', targetSheets: ['2026-07'] });
+  }
+
+  monthlyReport(): Promise<MonthlyLedgerReport> {
+    return this.monthlySummary().then((summary) => ({ summary, rows: [] }));
   }
 
   monthlySummary(): Promise<MonthlySummary> {

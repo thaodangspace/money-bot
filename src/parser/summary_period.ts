@@ -12,18 +12,36 @@ const YEAR_MONTH_PATTERN = /\b((?:19|20)\d{2})\s*(?:\/|\s|-)\s*(0?[1-9]|1[0-2])\
 const NAMED_MONTH_PATTERN = /\bthang\s+(0?[1-9]|1[0-2])(?:\s*\/?\s*((?:19|20)\d{2}))?\b/u;
 const BARE_MONTH_PATTERN = /^(0?[1-9]|1[0-2])(?:\s*\/?\s*((?:19|20)\d{2}))?$/u;
 
+export function parseReportPeriod(
+  input: string,
+  now: Date,
+  timeZone = 'Asia/Ho_Chi_Minh',
+): MonthlySummaryPeriod | undefined {
+  return parsePeriod(input, now, timeZone, '/report');
+}
+
+/** @deprecated Kept for callers of the old parser; new command handling uses /report. */
 export function parseMonthlySummaryPeriod(
   input: string,
   now: Date,
   timeZone = 'Asia/Ho_Chi_Minh',
+): MonthlySummaryPeriod | undefined {
+  return parsePeriod(input, now, timeZone, '/summary');
+}
+
+function parsePeriod(
+  input: string,
+  now: Date,
+  timeZone: string,
+  command: string,
 ): MonthlySummaryPeriod | undefined {
   const normalized = normalizeForIntent(input);
   const current = currentPeriod(now, timeZone);
   if (!normalized) return current;
 
   let value = normalized;
-  if (value.startsWith('/summary')) {
-    value = value.slice('/summary'.length).trim();
+  if (value.startsWith(command)) {
+    value = value.slice(command.length).trim();
     if (!value) return current;
   }
   if (!value || CURRENT_PATTERN.test(value)) return current;
