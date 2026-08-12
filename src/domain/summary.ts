@@ -3,6 +3,8 @@ export interface MonthlySummary {
   month: number;
   totalExpenses: number;
   totalIncome: number;
+  totalInvest: number;
+  totalSaving: number;
   balance: number;
   entryCount: number;
 }
@@ -13,13 +15,17 @@ export function newMonthlySummary(
   expenses: number,
   income: number,
   count: number,
+  invest = 0,
+  saving = 0,
 ): MonthlySummary {
   return {
     year,
     month,
     totalExpenses: expenses,
     totalIncome: income,
-    balance: income - expenses,
+    totalInvest: invest,
+    totalSaving: saving,
+    balance: income - expenses - invest - saving,
     entryCount: count,
   };
 }

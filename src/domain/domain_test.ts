@@ -2,6 +2,8 @@ import {
   type Transaction,
   TRANSACTION_EXPENSE,
   TRANSACTION_INCOME,
+  TRANSACTION_INVEST,
+  TRANSACTION_SAVING,
   transactionContent,
   validateTransaction,
 } from './transaction.ts';
@@ -26,6 +28,12 @@ Deno.test('transaction content falls back to category and note', () => {
     type: TRANSACTION_EXPENSE,
   };
   equal(transactionContent(transaction), 'Ăn tối pizza');
+});
+
+Deno.test('invest and saving are valid transaction types', () => {
+  for (const type of [TRANSACTION_INVEST, TRANSACTION_SAVING]) {
+    validateTransaction({ type, category: 'asset', amount: 1 });
+  }
 });
 
 Deno.test('transaction validation reports all invalid fields', () => {
@@ -57,3 +65,5 @@ function equal<T>(actual: T, expected: T): void {
 }
 
 void TRANSACTION_INCOME;
+void TRANSACTION_INVEST;
+void TRANSACTION_SAVING;

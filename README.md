@@ -65,6 +65,8 @@ For local development, start the webhook server, expose it through a Deno Deploy
 - `/menu` - inline menu
 - `/report` - current-month report
 - `/report tháng 5`, `/report 05/2026`, `/report tháng trước` - report another month
+- `/invest <item> <amount> [note]` - record an investment (for example, `/invest crypto 5tr BTC`)
+- `/saving <item> <amount> [note]` - record savings (for example, `/saving bank 10tr Vietcombank`)
 - `/help` - syntax help
 
 Ordinary text is sent to the configured LLM and treated as a transaction unless it is a command or a summary intent such as `chi tiêu tháng này`.
@@ -94,7 +96,7 @@ For each transaction date, the bot writes to that month worksheet (`YYYY-MM`). T
 Columns:
 
 1. Date: `DD/MM/YYYY`
-2. Type: `expense` or `income`
+2. Type: `expense`, `income`, `invest`, or `saving`
 3. Content: detected category in parentheses plus the original message
 4. Amount: integer Vietnamese đồng
 

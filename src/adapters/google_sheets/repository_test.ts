@@ -2,6 +2,8 @@ import {
   type Transaction,
   TRANSACTION_EXPENSE,
   TRANSACTION_INCOME,
+  TRANSACTION_INVEST,
+  TRANSACTION_SAVING,
 } from '../../domain/transaction.ts';
 import { SheetsRepository } from './repository.ts';
 import {
@@ -95,6 +97,27 @@ Deno.test('repository appends cross-month transactions and one metadata row atom
   if (metadata?.values[0]?.[1] !== '99' || metadata.values[0]?.[3] !== '2026-07,2026-08') {
     throw new Error(JSON.stringify(metadata));
   }
+});
+
+Deno.test('repository writes and reports invest and saving buckets', async () => {
+  const api = new FakeSheets();
+  const repository = new SheetsRepository({ api, spreadsheetId: 'spreadsheet' });
+  const result = await repository.appendTransactions(new AbortController().signal, 100, [
+    { category: 'crypto', amount: 5_000_000, type: TRANSACTION_INVEST, date: '2026-07-18' },
+    { category: 'bank', amount: 8_000_000, type: TRANSACTION_SAVING, date: '2026-07-19' },
+  ]);
+  if (result.status !== 'written') throw new Error(JSON.stringify(result));
+  const rows = api.batches[0]?.requests.slice(0, 2).map((request) =>
+    request.appendCells?.values[0]?.slice(1, 2)[0]
+  );
+  if (rows?.join(',') !== 'invest,saving') throw new Error(JSON.stringify(rows));
+
+  const report = await repository.monthlyReport(new AbortController().signal, 2026, 7);
+  if (
+    report.summary.totalInvest !== 5_000_000 || report.summary.totalSaving !== 8_000_000 ||
+    report.summary.totalExpenses !== 0 || report.summary.totalIncome !== 0 ||
+    report.summary.balance !== -13_000_000 || report.rows.length !== 2
+  ) throw new Error(JSON.stringify(report));
 });
 
 Deno.test('repository suppresses a duplicate update ID before writing', async () => {

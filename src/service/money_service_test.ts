@@ -113,6 +113,47 @@ Deno.test('unrecognized transactions are delegated to AI', async () => {
   if (!result.text.includes('AI đã hỗ trợ')) throw new Error(result.text);
 });
 
+Deno.test('typed recording forces the bucket and preserves the slash command', async () => {
+  const ledger = new SimpleLedger();
+  const service = new MoneyService({ ledger, ai: new FakeAI() });
+  const result = await service.record(
+    new AbortController().signal,
+    108,
+    'crypto 5tr BTC',
+    { type: 'invest', originalMessage: '/invest crypto 5tr BTC' },
+  );
+  if (!result.parsed || ledger.appended[0]?.type !== 'invest') {
+    throw new Error(JSON.stringify({ result, ledger }));
+  }
+  if (ledger.appended[0]?.originalMessage !== '/invest crypto 5tr BTC') {
+    throw new Error(JSON.stringify(ledger.appended[0]));
+  }
+
+  const saving = await service.record(
+    new AbortController().signal,
+    109,
+    'bank 10tr VCB',
+    { type: 'saving', originalMessage: '/saving bank 10tr VCB' },
+  );
+  if (!saving.parsed || ledger.appended[1]?.type !== 'saving') {
+    throw new Error(JSON.stringify({ saving, ledger }));
+  }
+});
+
+Deno.test('typed AI fallback is overridden by the command bucket', async () => {
+  const ledger = new SimpleLedger();
+  const service = new MoneyService({ ledger, ai: new FakeAI() });
+  const result = await service.record(
+    new AbortController().signal,
+    110,
+    'bought some BTC for five million',
+    { type: 'invest', originalMessage: '/invest bought some BTC for five million' },
+  );
+  if (!result.parsed || !result.usedAI || ledger.appended[0]?.type !== 'invest') {
+    throw new Error(JSON.stringify({ result, ledger }));
+  }
+});
+
 Deno.test('ambiguous AI input is reported without a syntax lecture or write', async () => {
   const service = new MoneyService({ ledger: new SimpleLedger(), ai: new AmbiguousAI() });
   const result = await service.record(new AbortController().signal, 105, 'ăn tối với bạn');
@@ -168,6 +209,8 @@ class BlockingLedger implements Ledger {
       month: 7,
       totalExpenses: 0,
       totalIncome: 0,
+      totalInvest: 0,
+      totalSaving: 0,
       balance: 0,
       entryCount: 0,
     });
@@ -218,6 +261,8 @@ Deno.test('failed image writes release the confirmation for retry', async () => 
           month: 7,
           totalExpenses: 0,
           totalIncome: 0,
+          totalInvest: 0,
+          totalSaving: 0,
           balance: 0,
           entryCount: 0,
         },
@@ -296,6 +341,8 @@ class SimpleLedger implements Ledger {
       month: 7,
       totalExpenses: 0,
       totalIncome: 0,
+      totalInvest: 0,
+      totalSaving: 0,
       balance: 0,
       entryCount: 0,
     });

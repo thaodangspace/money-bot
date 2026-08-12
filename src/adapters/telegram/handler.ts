@@ -6,8 +6,10 @@ import {
   CALLBACK_MENU,
   CALLBACK_REPORT,
   helpText,
+  investUsageText,
   quickMenuKeyboard,
   quickMenuText,
+  savingUsageText,
   startKeyboard,
   startText,
   summaryMigrationText,
@@ -78,7 +80,7 @@ export class TelegramHandler {
     if (message.image) return this.#handleImage(signal, updateId, message);
     const text = message.text.trim();
     if (!text) return;
-    if (text.startsWith('/')) return this.#handleCommand(signal, message.chatId, text);
+    if (text.startsWith('/')) return this.#handleCommand(signal, updateId, message.chatId, text);
     if (this.#service.isSummaryIntent(text)) return this.#sendReport(signal, message.chatId, text);
     return this.#sendRecord(signal, updateId, message.chatId, text);
   }
@@ -170,7 +172,12 @@ export class TelegramHandler {
     await this.#messenger.answerCallback(signal, callback.id, 'Không rõ thao tác');
   }
 
-  #handleCommand(signal: AbortSignal, chatId: number, text: string): Promise<void> {
+  #handleCommand(
+    signal: AbortSignal,
+    updateId: number,
+    chatId: number,
+    text: string,
+  ): Promise<void> {
     switch (commandName(text)) {
       case 'start':
         return this.#sendChunks(signal, chatId, startText(), startKeyboard());
@@ -178,6 +185,10 @@ export class TelegramHandler {
         return this.#sendChunks(signal, chatId, quickMenuText(), quickMenuKeyboard());
       case 'report':
         return this.#sendReport(signal, chatId, commandArgs(text));
+      case 'invest':
+        return this.#sendTypedRecord(signal, updateId, chatId, text, 'invest');
+      case 'saving':
+        return this.#sendTypedRecord(signal, updateId, chatId, text, 'saving');
       case 'summary':
         return this.#sendChunks(signal, chatId, summaryMigrationText());
       case 'help':
@@ -194,6 +205,28 @@ export class TelegramHandler {
     text: string,
   ): Promise<void> {
     const result = await this.#service.record(signal, updateId, text);
+    await this.#sendChunks(signal, chatId, result.text);
+  }
+
+  async #sendTypedRecord(
+    signal: AbortSignal,
+    updateId: number,
+    chatId: number,
+    originalMessage: string,
+    type: 'invest' | 'saving',
+  ): Promise<void> {
+    const payload = commandArgs(originalMessage);
+    if (!payload) {
+      return this.#sendChunks(
+        signal,
+        chatId,
+        type === 'invest' ? investUsageText() : savingUsageText(),
+      );
+    }
+    const result = await this.#service.record(signal, updateId, payload, {
+      type,
+      originalMessage,
+    });
     await this.#sendChunks(signal, chatId, result.text);
   }
 

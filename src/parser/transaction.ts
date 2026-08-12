@@ -2,6 +2,7 @@ import {
   type Transaction,
   TRANSACTION_EXPENSE,
   TRANSACTION_INCOME,
+  type TransactionType,
   validateTransaction,
 } from '../domain/transaction.ts';
 import { normalizeForIntent } from './intent.ts';
@@ -21,18 +22,21 @@ export class TransactionNotRecognizedError extends Error {
 
 const TRANSACTION_PATTERN = /^(.+?)\s+([0-9][0-9.,]*\s*(?:k|tr|m|đ|d)?\d*)(?:\s+(.*))?$/u;
 
-export function parseTransaction(input: string): Transaction {
+export function parseTransaction(
+  input: string,
+  options: { type?: TransactionType } = {},
+): Transaction {
   const trimmed = input.trim();
   if (!trimmed) throw new TransactionNotRecognizedError();
   if (runeLength(trimmed) > MAX_INPUT_RUNES) {
     throw new TransactionNotRecognizedError('transaction not recognized: input too long');
   }
 
-  let type = TRANSACTION_EXPENSE;
+  let type = options.type ?? TRANSACTION_EXPENSE;
   let text = trimmed;
   const incomePrefix = trimIncomePrefix(text);
   if (incomePrefix !== undefined) {
-    type = TRANSACTION_INCOME;
+    if (options.type === undefined) type = TRANSACTION_INCOME;
     text = incomePrefix.trim();
   }
   if (!text) throw new TransactionNotRecognizedError();

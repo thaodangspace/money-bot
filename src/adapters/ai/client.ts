@@ -1,3 +1,4 @@
+import type { MonthlySummary } from '../../domain/summary.ts';
 import type { Transaction } from '../../domain/transaction.ts';
 import type { AIParser, Commentator } from '../../service/types.ts';
 import {
@@ -230,14 +231,7 @@ export class AIClient implements AIParser, Commentator {
 
   async summaryCommentary(
     signal: AbortSignal,
-    summary: {
-      year: number;
-      month: number;
-      totalExpenses: number;
-      totalIncome: number;
-      balance: number;
-      entryCount: number;
-    },
+    summary: MonthlySummary,
   ): Promise<string> {
     const content = await this.#chat(
       signal,
@@ -251,7 +245,7 @@ export class AIClient implements AIParser, Commentator {
           role: 'user',
           content: `Tháng ${
             String(summary.month).padStart(2, '0')
-          }/${summary.year}: chi=${summary.totalExpenses}, thu=${summary.totalIncome}, cân bằng=${summary.balance}, số giao dịch=${summary.entryCount}. Viết nhận xét ngắn, không thay số.`,
+          }/${summary.year}: chi=${summary.totalExpenses}, thu=${summary.totalIncome}, đầu tư=${summary.totalInvest}, tiết kiệm=${summary.totalSaving}, cân bằng=${summary.balance}, số giao dịch=${summary.entryCount}. Viết nhận xét ngắn, không thay số.`,
         },
       ],
       0.5,

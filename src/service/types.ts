@@ -1,7 +1,7 @@
 import type { LedgerReportRow, MonthlyLedgerReport } from '../domain/report.ts';
 export type { LedgerReportRow, MonthlyLedgerReport } from '../domain/report.ts';
 import type { MonthlySummary } from '../domain/summary.ts';
-import type { Transaction } from '../domain/transaction.ts';
+import type { Transaction, TransactionType } from '../domain/transaction.ts';
 import type { ImageTransactionExtraction } from '../adapters/ai/image_types.ts';
 import type { Logger } from '../shared/logger.ts';
 import type { PendingImageStore } from './image_pending_store.ts';
@@ -24,6 +24,11 @@ export interface Ledger {
     year: number,
     month: number,
   ) => Promise<MonthlyLedgerReport>;
+}
+
+export interface RecordOptions {
+  type?: TransactionType;
+  originalMessage?: string;
 }
 
 export interface AIParser {

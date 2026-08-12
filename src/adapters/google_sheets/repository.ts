@@ -1,8 +1,11 @@
 import { currentPlainDate } from '../../shared/calendar.ts';
 import {
+  isTransactionType,
   type Transaction,
   TRANSACTION_EXPENSE,
   TRANSACTION_INCOME,
+  TRANSACTION_INVEST,
+  TRANSACTION_SAVING,
   validateTransaction,
 } from '../../domain/transaction.ts';
 import { type LedgerReportRow, type MonthlyLedgerReport } from '../../domain/report.ts';
@@ -324,9 +327,7 @@ function normalizeFlatRows(rows: string[][], year: number, month: number): Ledge
     if (row.length < 4 || !validDate(row[0]!, year, month)) continue;
     const amount = parseSheetAmount(row[3]!);
     const type = (row[1] ?? '').trim().toLowerCase();
-    if (amount === undefined || (type !== TRANSACTION_EXPENSE && type !== TRANSACTION_INCOME)) {
-      continue;
-    }
+    if (amount === undefined || !isTransactionType(type)) continue;
     normalized.push({ date: row[0]!.trim(), type, content: row[2] ?? '', amount });
   }
   return normalized;
@@ -367,11 +368,15 @@ function normalizeLegacyRows(rows: string[][], year: number, month: number): Led
 function summarizeReportRows(rows: LedgerReportRow[], year: number, month: number): MonthlySummary {
   let expenses = 0;
   let income = 0;
+  let invest = 0;
+  let saving = 0;
   for (const row of rows) {
     if (row.type === TRANSACTION_EXPENSE) expenses = safeAdd(expenses, row.amount);
     else if (row.type === TRANSACTION_INCOME) income = safeAdd(income, row.amount);
+    else if (row.type === TRANSACTION_INVEST) invest = safeAdd(invest, row.amount);
+    else if (row.type === TRANSACTION_SAVING) saving = safeAdd(saving, row.amount);
   }
-  return newMonthlySummary(year, month, expenses, income, rows.length);
+  return newMonthlySummary(year, month, expenses, income, rows.length, invest, saving);
 }
 
 function dateSortValue(value: string): number {

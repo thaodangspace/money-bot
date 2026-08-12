@@ -34,6 +34,7 @@ import type {
   ImageInput,
   ImagePreparation,
   Ledger,
+  RecordOptions,
   ReportResponse,
   ReportResult,
   ServiceOptions,
@@ -64,7 +65,12 @@ export class MoneyService {
     return detectMonthlySummaryIntent(text);
   }
 
-  async record(signal: AbortSignal, updateId: number, text: string): Promise<ServiceResult> {
+  async record(
+    signal: AbortSignal,
+    updateId: number,
+    text: string,
+    options?: RecordOptions,
+  ): Promise<ServiceResult> {
     const logger = this.#logger.forSignal(signal);
     const started = performance.now();
     logger.info('service.record.start', {
@@ -80,7 +86,7 @@ export class MoneyService {
     let usedAI = false;
     try {
       try {
-        transaction = parseTransaction(text);
+        transaction = parseTransaction(text, options);
       } catch (error) {
         if (!(error instanceof TransactionNotRecognizedError)) throw error;
         usedAI = true;
@@ -90,6 +96,7 @@ export class MoneyService {
           throw classifyAIError(aiError);
         }
       }
+      if (options?.type !== undefined) transaction.type = options.type;
       validateTransaction(transaction);
     } catch (error) {
       const failureStage = failureDescription(error, usedAI);
@@ -107,7 +114,7 @@ export class MoneyService {
       ...transaction,
       date: currentPlainDate(this.#clock.now(), this.#timeZone),
       sourceUpdateId: updateId,
-      originalMessage: text,
+      originalMessage: options?.originalMessage?.trim() || text,
     };
     let result;
     try {
