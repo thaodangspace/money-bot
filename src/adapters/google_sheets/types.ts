@@ -1,3 +1,4 @@
+import type { FinancialSummary } from '../../domain/financial_summary.ts';
 import type { Transaction } from '../../domain/transaction.ts';
 import type { MonthlyLedgerReport } from '../../domain/report.ts';
 
@@ -70,6 +71,7 @@ export interface SheetsLedger {
     transactions: Transaction[],
   ): Promise<AppendBatchResult>;
   monthlyReport(signal: AbortSignal, year: number, month: number): Promise<MonthlyLedgerReport>;
+  allTimeSummary(signal: AbortSignal): Promise<FinancialSummary>;
 }
 
 export class SheetNotFoundError extends Error {

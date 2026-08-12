@@ -3,6 +3,8 @@ import { parseReportPeriod } from '../parser/summary_period.ts';
 import { parseTransaction, TransactionNotRecognizedError } from '../parser/transaction.ts';
 import { currentPlainDate } from '../shared/calendar.ts';
 import { type Clock, systemClock } from '../shared/runtime.ts';
+import type { FinancialSummary } from '../domain/financial_summary.ts';
+import { financialRatios } from '../domain/financial_summary.ts';
 import type { Transaction } from '../domain/transaction.ts';
 import { validateTransaction } from '../domain/transaction.ts';
 import {
@@ -16,6 +18,7 @@ import {
   boundText,
   duplicateBatchText,
   duplicateText,
+  formatFinancialSummary,
   formatSummary,
   imageConfirmationUnavailableText,
   imagePreviewTextBatch,
@@ -344,6 +347,53 @@ export class MoneyService {
       summary: report.summary,
       rows: report.rows,
     } satisfies ReportResult;
+  }
+
+  async financialSummary(signal: AbortSignal): Promise<ServiceResult> {
+    const logger = this.#logger.forSignal(signal);
+    const started = performance.now();
+    logger.info('service.financial_summary.start', {
+      from: 'TelegramHandler',
+      to: 'MoneyService.financialSummary',
+    });
+    let summary: FinancialSummary;
+    try {
+      summary = await this.#ledger.allTimeSummary(signal);
+    } catch (error) {
+      logger.error('service.financial_summary.ledger_failed', {
+        from: 'MoneyService.financialSummary',
+        to: 'SheetsRepository.allTimeSummary',
+        durationMs: elapsedMs(started),
+        ...errorFields(error),
+      });
+      throw error;
+    }
+    let response = formatFinancialSummary(summary);
+    if (summary.entryCount > 0 && this.#comments?.financialAssessment) {
+      try {
+        const comment = (await this.#comments.financialAssessment(
+          signal,
+          summary,
+          financialRatios(summary),
+        )).trim();
+        if (comment) response += `\n\n🤖 Đánh giá AI\n${boundText(comment, 600)}`;
+      } catch (error) {
+        logger.warn('service.financial_summary.commentary_failed', {
+          from: 'MoneyService.financialSummary',
+          to: 'AIClient.financialAssessment',
+          ...errorFields(error),
+        });
+      }
+    }
+    logger.info('service.financial_summary.success', {
+      from: 'MoneyService.financialSummary',
+      to: 'TelegramHandler',
+      durationMs: elapsedMs(started),
+      entryCount: summary.entryCount,
+      firstTransactionDate: summary.firstTransactionDate,
+      lastTransactionDate: summary.lastTransactionDate,
+    });
+    return { text: response };
   }
 
   /** @deprecated Use report. */

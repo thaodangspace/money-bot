@@ -20,7 +20,8 @@ The service uses the existing spreadsheet schema and remains compatible with leg
   - `18/07/2026 | income | (salary) thu lương 20tr tháng 7 | 20000000`
 - Legacy read compatibility for old numeric sheets `1` through `12` in Tiubot format.
 - Hidden `_money_bot_meta` worksheet for Telegram update idempotency.
-- `/report` current-month totals across new and legacy sheets, with optional month arguments for older months.
+- `/summary` all-time recorded financial totals across new and legacy sheets, with an optional AI assessment.
+- `/report` current-month totals across new and legacy sheets, with optional month arguments for older months and a Markdown attachment.
 - Required LLM parsing for free-text transactions, with local LM Studio/OpenAI-compatible endpoint support and OpenRouter support.
 - JPEG, PNG, or WebP receipt and completed bank-transfer image capture, with explicit confirmation before a Sheets write.
 
@@ -63,8 +64,11 @@ For local development, start the webhook server, expose it through a Deno Deploy
 
 - `/start` - intro and quick actions
 - `/menu` - inline menu
+- `/summary` - all-time recorded financial snapshot plus AI assessment
 - `/report` - current-month report
 - `/report tháng 5`, `/report 05/2026`, `/report tháng trước` - report another month
+
+`/summary` and `/report` are intentionally separate: `/summary` covers all recorded history and derives recorded cash as income minus expenses, investments, and savings; `/report` details one period. The derived cash figure is not a live bank balance or net worth.
 - `/invest <item> <amount> [note]` - record an investment (for example, `/invest crypto 5tr BTC`)
 - `/saving <item> <amount> [note]` - record savings (for example, `/saving bank 10tr Vietcombank`)
 - `/help` - syntax help
@@ -133,7 +137,7 @@ Live Google Sheets integration should be run only against a dedicated test sprea
 
 - **No writes to Sheets**: verify the service account has editor access to the spreadsheet.
 - **Duplicate message not added**: expected behavior when Telegram redelivers the same update ID.
-- **Legacy data missing from summary**: old rows must be under a valid `DD/MM/YYYY` date header for the requested month/year.
+- **Legacy data missing from summary**: old rows must be under a valid `DD/MM/YYYY` date header whose month matches the numeric worksheet; `/summary` scans all such historical dates.
 - **AI parsing unavailable**: ensure LM Studio is running with a model loaded at `ai.baseURL`, or set `ai.provider: openrouter` and export the configured API key.
 - **Image parsing unavailable**: configure `ai.imageModel` (or `ai.model`) with a vision-capable model. For unclear receipts/transfers, send one complete, clearer image and confirm the preview before it is saved.
 - **Webhook URL/path mismatch**: register `https://money-bot.thaodangspace.deno.net/telegram/webhook` with `deno task telegram:webhook:set` and verify it with `deno task telegram:webhook:info`.

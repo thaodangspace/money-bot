@@ -1,3 +1,4 @@
+import { financialRatios, type FinancialSummary } from '../domain/financial_summary.ts';
 import type { MonthlySummary } from '../domain/summary.ts';
 import {
   type Transaction,
@@ -116,6 +117,44 @@ export function reportUsageText(): string {
 
 /** @deprecated Use reportUsageText. */
 export const summaryUsageText = reportUsageText;
+
+export function formatFinancialSummary(summary: FinancialSummary): string {
+  const lines = ['📊 Tổng quan tài chính — toàn thời gian', ''];
+  if (summary.entryCount === 0) {
+    lines.push('📭 Chưa có giao dịch để tổng hợp.');
+    return lines.join('\n');
+  }
+  lines.push(
+    `💵 Tổng thu nhập: ${formatDong(summary.totalIncome)} ₫`,
+    `💸 Tổng chi tiêu: ${formatDong(summary.totalExpenses)} ₫`,
+    `🏦 Tổng tiết kiệm: ${formatDong(summary.totalSaving)} ₫`,
+    `📈 Tổng đầu tư: ${formatDong(summary.totalInvest)} ₫`,
+    `💰 Tiền mặt khả dụng*: ${formatDong(summary.cashAvailable)} ₫`,
+    '',
+    `📝 ${summary.entryCount} giao dịch`,
+  );
+  if (summary.firstTransactionDate && summary.lastTransactionDate) {
+    lines.push(`📅 Dữ liệu: ${summary.firstTransactionDate} → ${summary.lastTransactionDate}`);
+  }
+  const ratios = financialRatios(summary);
+  if (ratios.expenseToIncome !== undefined) {
+    lines.push(
+      '',
+      `Chi tiêu / thu nhập: ${formatRatio(ratios.expenseToIncome)}`,
+      `Tiết kiệm / thu nhập: ${formatRatio(ratios.savingToIncome!)}`,
+      `Đầu tư / thu nhập: ${formatRatio(ratios.investToIncome!)}`,
+    );
+  }
+  lines.push(
+    '',
+    '* Theo dữ liệu đã ghi: thu nhập - chi tiêu - đầu tư - tiết kiệm. Đây không phải số dư ngân hàng.',
+  );
+  return lines.join('\n');
+}
+
+function formatRatio(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
 
 export function formatSummary(summary: MonthlySummary): string {
   const lines = [`📊 Báo cáo ${vietnameseMonthName(summary.month)} ${summary.year}:`, ''];
