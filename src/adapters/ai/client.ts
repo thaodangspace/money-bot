@@ -245,7 +245,7 @@ export class AIClient implements AIParser, Commentator {
       `firstDate=${summary.firstTransactionDate ?? ''}`,
       `lastDate=${summary.lastTransactionDate ?? ''}`,
       ...Object.entries(ratios).map(([key, value]) => `${key}=${value}`),
-    ].join('\\n');
+    ].join('\n');
     const content = await this.#chat(
       signal,
       [

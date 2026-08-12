@@ -21,7 +21,6 @@ export interface FinancialRatios {
   expenseToIncome?: number;
   savingToIncome?: number;
   investToIncome?: number;
-  allocationToIncome?: number;
 }
 
 export function summarizeFinancialRows(rows: LedgerReportRow[]): FinancialSummary {
@@ -66,12 +65,10 @@ export function summarizeFinancialRows(rows: LedgerReportRow[]): FinancialSummar
 
 export function financialRatios(summary: FinancialSummary): FinancialRatios {
   if (summary.totalIncome === 0) return {};
-  const allocation = safeAdd(summary.totalSaving, summary.totalInvest);
   return {
     expenseToIncome: summary.totalExpenses / summary.totalIncome,
     savingToIncome: summary.totalSaving / summary.totalIncome,
     investToIncome: summary.totalInvest / summary.totalIncome,
-    allocationToIncome: allocation / summary.totalIncome,
   };
 }
 

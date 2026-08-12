@@ -122,7 +122,7 @@ export function formatFinancialSummary(summary: FinancialSummary): string {
   const lines = ['📊 Tổng quan tài chính — toàn thời gian', ''];
   if (summary.entryCount === 0) {
     lines.push('📭 Chưa có giao dịch để tổng hợp.');
-    return lines.join('\\n');
+    return lines.join('\n');
   }
   lines.push(
     `💵 Tổng thu nhập: ${formatDong(summary.totalIncome)} ₫`,
@@ -149,7 +149,7 @@ export function formatFinancialSummary(summary: FinancialSummary): string {
     '',
     '* Theo dữ liệu đã ghi: thu nhập - chi tiêu - đầu tư - tiết kiệm. Đây không phải số dư ngân hàng.',
   );
-  return lines.join('\\n');
+  return lines.join('\n');
 }
 
 function formatRatio(value: number): string {

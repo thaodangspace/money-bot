@@ -76,6 +76,18 @@ Deno.test('financial summary preserves negative cash and omits zero-income ratio
   if (Object.keys(financialRatios(summary)).length !== 0) throw new Error('ratios were present');
 });
 
+Deno.test('financial ratios do not overflow on valid saving and investment totals', () => {
+  const summary = summarizeFinancialRows([
+    { date: '01/01/2026', type: TRANSACTION_INCOME, content: '', amount: Number.MAX_SAFE_INTEGER },
+    { date: '02/01/2026', type: TRANSACTION_INVEST, content: '', amount: Number.MAX_SAFE_INTEGER },
+    { date: '03/01/2026', type: TRANSACTION_SAVING, content: '', amount: Number.MAX_SAFE_INTEGER },
+  ]);
+  equal(summary.cashAvailable, -Number.MAX_SAFE_INTEGER);
+  const ratios = financialRatios(summary);
+  equal(ratios.investToIncome, 1);
+  equal(ratios.savingToIncome, 1);
+});
+
 Deno.test('financial summary rejects unsafe aggregate overflow', () => {
   let failed = false;
   try {

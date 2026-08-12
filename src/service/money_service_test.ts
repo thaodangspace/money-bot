@@ -5,7 +5,7 @@ import {
 } from '../domain/transaction.ts';
 import { AIAmbiguousInputError, InvalidAIOutputError } from '../adapters/ai/validation.ts';
 import { MoneyService } from './money_service.ts';
-import type { AIParser, AppendBatchResult, Ledger } from './types.ts';
+import type { AIParser, AppendBatchResult, Commentator, Ledger } from './types.ts';
 import type { FinancialSummary } from '../domain/financial_summary.ts';
 import type { MonthlyLedgerReport } from '../domain/report.ts';
 import type { MonthlySummary } from '../domain/summary.ts';
@@ -176,6 +176,64 @@ Deno.test('invalid AI response yields a dedicated response message', async () =>
   if (!result.text.includes('không đọc được phản hồi')) throw new Error(result.text);
 });
 
+const populatedFinancialSummary: FinancialSummary = {
+  totalIncome: 1_000_000,
+  totalExpenses: 200_000,
+  totalInvest: 100_000,
+  totalSaving: 300_000,
+  cashAvailable: 400_000,
+  entryCount: 4,
+  firstTransactionDate: '01/01/2026',
+  lastTransactionDate: '04/01/2026',
+};
+
+function summaryComments(assessment: string | Error): Commentator {
+  return {
+    confirmation: () => Promise.resolve(''),
+    summaryCommentary: () => Promise.resolve(''),
+    financialAssessment: () =>
+      assessment instanceof Error ? Promise.reject(assessment) : Promise.resolve(assessment),
+  };
+}
+
+Deno.test('financial summary includes a successful AI assessment', async () => {
+  const service = new MoneyService({
+    ledger: new SimpleLedger(populatedFinancialSummary),
+    ai: new FakeAI(),
+    comments: summaryComments('Chi tiêu đang ở mức kiểm soát.'),
+  });
+  const result = await service.financialSummary(new AbortController().signal);
+  if (
+    !result.text.includes('\n\n🤖 Đánh giá AI\nChi tiêu đang ở mức kiểm soát.') ||
+    result.text.includes('\\n')
+  ) throw new Error(result.text);
+});
+
+Deno.test('failed AI assessment preserves the deterministic financial summary', async () => {
+  const service = new MoneyService({
+    ledger: new SimpleLedger(populatedFinancialSummary),
+    ai: new FakeAI(),
+    comments: summaryComments(new Error('AI unavailable')),
+  });
+  const result = await service.financialSummary(new AbortController().signal);
+  if (
+    !result.text.includes('📊 Tổng quan tài chính') || result.text.includes('🤖 Đánh giá AI') ||
+    result.text.includes('\\n')
+  ) throw new Error(result.text);
+});
+
+Deno.test('empty AI assessment does not add an empty commentary section', async () => {
+  const service = new MoneyService({
+    ledger: new SimpleLedger(populatedFinancialSummary),
+    ai: new FakeAI(),
+    comments: summaryComments(''),
+  });
+  const result = await service.financialSummary(new AbortController().signal);
+  if (result.text.includes('🤖 Đánh giá AI') || result.text.includes('\\n')) {
+    throw new Error(result.text);
+  }
+});
+
 class BlockingLedger implements Ledger {
   appendCalls = 0;
   appended: Transaction[] = [];
@@ -344,6 +402,17 @@ Deno.test('image pending capacity and cancellation are bounded', async () => {
 class SimpleLedger implements Ledger {
   appended: Transaction[] = [];
 
+  constructor(
+    private readonly financialSummary: FinancialSummary = {
+      totalIncome: 0,
+      totalExpenses: 0,
+      totalInvest: 0,
+      totalSaving: 0,
+      cashAvailable: 0,
+      entryCount: 0,
+    },
+  ) {}
+
   appendTransactions(
     _signal: AbortSignal,
     _updateId: number,
@@ -354,14 +423,7 @@ class SimpleLedger implements Ledger {
   }
 
   allTimeSummary(): Promise<FinancialSummary> {
-    return Promise.resolve({
-      totalIncome: 0,
-      totalExpenses: 0,
-      totalInvest: 0,
-      totalSaving: 0,
-      cashAvailable: 0,
-      entryCount: 0,
-    });
+    return Promise.resolve(this.financialSummary);
   }
 
   monthlyReport(): Promise<MonthlyLedgerReport> {

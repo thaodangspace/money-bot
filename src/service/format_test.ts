@@ -59,6 +59,7 @@ Deno.test('financial summary formatting is deterministic and explicit about deri
     lastTransactionDate: '12/08/2026',
   };
   const text = formatFinancialSummary(summary);
+  if (!text.includes('\n') || text.includes('\\n')) throw new Error(`invalid line breaks: ${text}`);
   for (
     const expected of [
       '250.000.000 ₫',

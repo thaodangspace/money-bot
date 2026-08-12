@@ -376,7 +376,7 @@ export class MoneyService {
           summary,
           financialRatios(summary),
         )).trim();
-        if (comment) response += `\\n\\n🤖 Đánh giá AI\\n${boundText(comment, 600)}`;
+        if (comment) response += `\n\n🤖 Đánh giá AI\n${boundText(comment, 600)}`;
       } catch (error) {
         logger.warn('service.financial_summary.commentary_failed', {
           from: 'MoneyService.financialSummary',
