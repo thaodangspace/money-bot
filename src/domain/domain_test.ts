@@ -7,6 +7,7 @@ import {
   transactionContent,
   validateTransaction,
 } from './transaction.ts';
+import { financialRatios, summarizeFinancialRows } from './financial_summary.ts';
 import { newMonthlySummary } from './summary.ts';
 
 Deno.test('transaction content uses original message with category tag', () => {
@@ -47,6 +48,50 @@ Deno.test('transaction validation reports all invalid fields', () => {
   for (const expected of ['transaction type', 'category', 'amount']) {
     if (!message.includes(expected)) throw new Error(`missing ${expected}: ${message}`);
   }
+});
+
+Deno.test('financial summary aggregates buckets, cash, and date range', () => {
+  const summary = summarizeFinancialRows([
+    { date: '18/07/2026', type: TRANSACTION_INCOME, content: '', amount: 250_000_000 },
+    { date: '01/01/2026', type: TRANSACTION_EXPENSE, content: '', amount: 120_000_000 },
+    { date: '12/08/2026', type: TRANSACTION_SAVING, content: '', amount: 50_000_000 },
+    { date: '05/08/2026', type: TRANSACTION_INVEST, content: '', amount: 40_000_000 },
+  ]);
+  equal(summary.totalIncome, 250_000_000);
+  equal(summary.totalExpenses, 120_000_000);
+  equal(summary.totalSaving, 50_000_000);
+  equal(summary.totalInvest, 40_000_000);
+  equal(summary.cashAvailable, 40_000_000);
+  equal(summary.firstTransactionDate, '01/01/2026');
+  equal(summary.lastTransactionDate, '12/08/2026');
+  equal(financialRatios(summary).expenseToIncome, 0.48);
+});
+
+Deno.test('financial summary preserves negative cash and omits zero-income ratios', () => {
+  const summary = summarizeFinancialRows([
+    { date: '18/07/2026', type: TRANSACTION_EXPENSE, content: '', amount: 200 },
+    { date: '19/07/2026', type: TRANSACTION_INVEST, content: '', amount: 100 },
+  ]);
+  equal(summary.cashAvailable, -300);
+  if (Object.keys(financialRatios(summary)).length !== 0) throw new Error('ratios were present');
+});
+
+Deno.test('financial summary rejects unsafe aggregate overflow', () => {
+  let failed = false;
+  try {
+    summarizeFinancialRows([
+      {
+        date: '01/01/2026',
+        type: TRANSACTION_INCOME,
+        content: '',
+        amount: Number.MAX_SAFE_INTEGER,
+      },
+      { date: '02/01/2026', type: TRANSACTION_INCOME, content: '', amount: 1 },
+    ]);
+  } catch {
+    failed = true;
+  }
+  if (!failed) throw new Error('overflow was accepted');
 });
 
 Deno.test('monthly summary computes balance', () => {

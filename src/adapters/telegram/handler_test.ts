@@ -28,6 +28,7 @@ class FakeMessenger implements Messenger {
 
 class FakeService implements MoneyServicePort {
   reportCalls = 0;
+  financialSummaryCalls = 0;
   reportQueries: string[] = [];
   recordCalls: Array<{ updateId: number; text: string; options?: RecordOptions }> = [];
   summaryIntent = false;
@@ -48,6 +49,10 @@ class FakeService implements MoneyServicePort {
       },
       rows: [{ date: '18/08/2026', type: 'expense', content: 'ăn tối', amount: 150000 }],
     });
+  }
+  financialSummary(): Promise<ServiceResult> {
+    this.financialSummaryCalls++;
+    return Promise.resolve({ text: '📊 Tổng quan tài chính' });
   }
   isSummaryIntent() {
     return this.summaryIntent;
@@ -200,7 +205,7 @@ Deno.test('typed commands without arguments show usage without recording', async
   ) throw new Error(JSON.stringify({ service, messenger }));
 });
 
-Deno.test('summary command gives migration guidance without running a report', async () => {
+Deno.test('summary command sends all-time summary without a document', async () => {
   const messenger = new FakeMessenger();
   const service = new FakeService();
   const handler = new TelegramHandler({
@@ -209,7 +214,10 @@ Deno.test('summary command gives migration guidance without running a report', a
     authorizer: new TelegramAuthorizer(42),
   });
   await handler.handleUpdate(new AbortController().signal, update('/summary'));
-  if (service.reportCalls !== 0 || !messenger.messages[0]?.includes('/report')) {
+  if (
+    service.reportCalls !== 0 || service.financialSummaryCalls !== 1 ||
+    messenger.messages[0] !== '📊 Tổng quan tài chính'
+  ) {
     throw new Error(JSON.stringify({ service, messenger }));
   }
   if (messenger.documents.length !== 0) throw new Error('legacy command sent a document');

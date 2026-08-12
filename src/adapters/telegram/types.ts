@@ -33,6 +33,7 @@ export interface MoneyServicePort {
   confirmImage(signal: AbortSignal, token: string): Promise<ServiceResult>;
   cancelImage(signal: AbortSignal, token: string): Promise<ServiceResult>;
   report(signal: AbortSignal, query: string): Promise<ReportResponse>;
+  financialSummary(signal: AbortSignal): Promise<ServiceResult>;
   isSummaryIntent(text: string): boolean;
 }
 

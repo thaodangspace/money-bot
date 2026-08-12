@@ -1,10 +1,12 @@
 import { TelegramAuthorizer } from './authz.ts';
 import { chunkText, DEFAULT_MAX_MESSAGE_RUNES } from './format.ts';
 import {
+  CALLBACK_FINANCIAL_SUMMARY,
   CALLBACK_HELP,
   CALLBACK_LEGACY_SUMMARY,
   CALLBACK_MENU,
   CALLBACK_REPORT,
+  financialSummaryUsageText,
   helpText,
   investUsageText,
   quickMenuKeyboard,
@@ -12,7 +14,6 @@ import {
   savingUsageText,
   startKeyboard,
   startText,
-  summaryMigrationText,
 } from './menu.ts';
 import { renderReportMarkdown } from './report_markdown.ts';
 import { errorFields, type Logger, nullLogger } from '../../shared/logger.ts';
@@ -161,6 +162,10 @@ export class TelegramHandler {
       await this.#messenger.answerCallback(signal, callback.id, 'OK');
       return this.#sendReport(signal, callback.chatId, '');
     }
+    if (callback.data === CALLBACK_FINANCIAL_SUMMARY) {
+      await this.#messenger.answerCallback(signal, callback.id, 'OK');
+      return this.#sendFinancialSummary(signal, callback.chatId);
+    }
     if (callback.data === CALLBACK_HELP) {
       await this.#messenger.answerCallback(signal, callback.id, 'OK');
       return this.#sendChunks(signal, callback.chatId, helpText());
@@ -190,7 +195,7 @@ export class TelegramHandler {
       case 'saving':
         return this.#sendTypedRecord(signal, updateId, chatId, text, 'saving');
       case 'summary':
-        return this.#sendChunks(signal, chatId, summaryMigrationText());
+        return this.#sendFinancialSummary(signal, chatId, commandArgs(text));
       case 'help':
         return this.#sendChunks(signal, chatId, helpText());
       default:
@@ -227,6 +232,16 @@ export class TelegramHandler {
       type,
       originalMessage,
     });
+    await this.#sendChunks(signal, chatId, result.text);
+  }
+
+  async #sendFinancialSummary(
+    signal: AbortSignal,
+    chatId: number,
+    args = '',
+  ): Promise<void> {
+    if (args.trim()) return this.#sendChunks(signal, chatId, financialSummaryUsageText());
+    const result = await this.#service.financialSummary(signal);
     await this.#sendChunks(signal, chatId, result.text);
   }
 

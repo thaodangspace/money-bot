@@ -1,3 +1,4 @@
+import type { FinancialRatios, FinancialSummary } from '../../domain/financial_summary.ts';
 import type { MonthlySummary } from '../../domain/summary.ts';
 import type { Transaction } from '../../domain/transaction.ts';
 import type { AIParser, Commentator } from '../../service/types.ts';
@@ -227,6 +228,38 @@ export class AIClient implements AIParser, Commentator {
       this.#model,
     );
     return truncateRunes(content.trim(), 240);
+  }
+
+  async financialAssessment(
+    signal: AbortSignal,
+    summary: FinancialSummary,
+    ratios: FinancialRatios,
+  ): Promise<string> {
+    const fields = [
+      `income=${summary.totalIncome}`,
+      `expense=${summary.totalExpenses}`,
+      `saving=${summary.totalSaving}`,
+      `invest=${summary.totalInvest}`,
+      `cashAvailable=${summary.cashAvailable}`,
+      `entryCount=${summary.entryCount}`,
+      `firstDate=${summary.firstTransactionDate ?? ''}`,
+      `lastDate=${summary.lastTransactionDate ?? ''}`,
+      ...Object.entries(ratios).map(([key, value]) => `${key}=${value}`),
+    ].join('\\n');
+    const content = await this.#chat(
+      signal,
+      [
+        {
+          role: 'system',
+          content:
+            'Bạn là trợ lý phân tích tài chính cá nhân. Đánh giá ngắn gọn chỉ dựa trên số liệu được cung cấp. Không tính lại hoặc thay đổi số liệu. Không suy đoán nợ, tài sản, lương ổn định, lợi nhuận đầu tư, số dư ngân hàng hoặc mục tiêu tài chính. Nêu rõ hạn chế khi cần. Trả lời tiếng Việt, thực tế, tối đa khoảng 120 từ. Đưa ra 2-3 nhận xét thực tế, không hứa hẹn kết quả đầu tư. Đây là dữ liệu sổ ghi chép, không phải giá trị tài sản ròng hay số dư ngân hàng.',
+        },
+        { role: 'user', content: fields },
+      ],
+      0.5,
+      this.#model,
+    );
+    return truncateRunes(content.trim(), 600);
   }
 
   async summaryCommentary(

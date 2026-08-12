@@ -1,5 +1,6 @@
 import type { LedgerReportRow, MonthlyLedgerReport } from '../domain/report.ts';
 export type { LedgerReportRow, MonthlyLedgerReport } from '../domain/report.ts';
+import type { FinancialRatios, FinancialSummary } from '../domain/financial_summary.ts';
 import type { MonthlySummary } from '../domain/summary.ts';
 import type { Transaction, TransactionType } from '../domain/transaction.ts';
 import type { ImageTransactionExtraction } from '../adapters/ai/image_types.ts';
@@ -24,6 +25,8 @@ export interface Ledger {
     year: number,
     month: number,
   ) => Promise<MonthlyLedgerReport>;
+  /** All supported worksheet formats, across every recorded period. */
+  allTimeSummary(signal: AbortSignal): Promise<FinancialSummary>;
 }
 
 export interface RecordOptions {
@@ -44,6 +47,11 @@ export interface AIParser {
 export interface Commentator {
   confirmation(signal: AbortSignal, transaction: Transaction, usedAI: boolean): Promise<string>;
   summaryCommentary(signal: AbortSignal, summary: MonthlySummary): Promise<string>;
+  financialAssessment(
+    signal: AbortSignal,
+    summary: FinancialSummary,
+    ratios: FinancialRatios,
+  ): Promise<string>;
 }
 
 export interface ImageInput {

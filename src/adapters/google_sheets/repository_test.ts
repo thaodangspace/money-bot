@@ -167,6 +167,43 @@ Deno.test('repository combines flat and legacy summary rows safely', async () =>
   }
 });
 
+Deno.test('repository scans all supported sheets for the all-time summary', async () => {
+  const api = new FakeSheets();
+  api.spreadsheet.sheets.push(
+    { id: 4, title: '7', hidden: false },
+    { id: 5, title: '2026-13', hidden: false },
+    { id: 6, title: 'notes', hidden: false },
+  );
+  api.values.set("'2026-07'!A:D", [
+    ['18/07/2026', 'income', 'salary', '1000000'],
+    ['19/07/2026', 'expense', 'meal', '200000'],
+    ['20/06/2026', 'income', 'wrong month', '999999'],
+    ['21/07/2026', 'invest', 'fund', '100000'],
+    ['22/07/2026', 'saving', 'bank', '50000'],
+  ]);
+  api.values.set("'2026-08'!A:D", [
+    ['01/08/2026', 'income', 'salary', '2000000'],
+    ['02/08/2026', 'expense', 'meal', '300000'],
+  ]);
+  api.values.set("'7'!A2:D", [
+    ['18/07/2025', '', '', ''],
+    ['old meal', '10.000', '20.000'],
+    ['19/07/2026', '', '', ''],
+    ['new meal', '30.000', '40.000'],
+    ['18/08/2026', '', '', ''],
+    ['wrong month', '999999', '999999'],
+  ]);
+  const summary = await new SheetsRepository({ api, spreadsheetId: 'spreadsheet' }).allTimeSummary(
+    new AbortController().signal,
+  );
+  if (
+    summary.totalIncome !== 3_060_000 || summary.totalExpenses !== 540_000 ||
+    summary.totalInvest !== 100_000 || summary.totalSaving !== 50_000 ||
+    summary.cashAvailable !== 2_370_000 || summary.entryCount !== 10 ||
+    summary.firstTransactionDate !== '18/07/2025' || summary.lastTransactionDate !== '02/08/2026'
+  ) throw new Error(JSON.stringify(summary));
+});
+
 Deno.test('repository treats missing current and legacy worksheets as an empty report', async () => {
   const repository = new SheetsRepository({
     api: new MissingSheets(),

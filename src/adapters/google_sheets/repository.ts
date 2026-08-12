@@ -9,6 +9,7 @@ import {
   validateTransaction,
 } from '../../domain/transaction.ts';
 import { type LedgerReportRow, type MonthlyLedgerReport } from '../../domain/report.ts';
+import { type FinancialSummary, summarizeFinancialRows } from '../../domain/financial_summary.ts';
 import { type MonthlySummary, newMonthlySummary } from '../../domain/summary.ts';
 import {
   type AppendBatchResult,
@@ -214,6 +215,47 @@ export class SheetsRepository {
     return { summary, rows };
   }
 
+  async allTimeSummary(signal: AbortSignal): Promise<FinancialSummary> {
+    const logger = this.#logger.forSignal(signal);
+    const started = performance.now();
+    logger.info('ledger.all_time_summary.start', {
+      from: 'MoneyService',
+      to: 'SheetsRepository.allTimeSummary',
+    });
+    const spreadsheet = await this.#api.getSpreadsheet(signal, this.#spreadsheetId);
+    const sheets = spreadsheet.sheets
+      .map((sheet) => supportedTransactionSheet(sheet.title))
+      .filter((sheet): sheet is SupportedTransactionSheet => sheet !== undefined);
+    const rows: LedgerReportRow[] = [];
+    for (const sheet of sheets) {
+      try {
+        const values = await this.#api.getValues(
+          signal,
+          this.#spreadsheetId,
+          `${quoteSheet(sheet.title)}!${sheet.kind === 'flat' ? 'A:D' : 'A2:D'}`,
+        );
+        rows.push(
+          ...(sheet.kind === 'flat'
+            ? normalizeFlatRows(values, sheet.year, sheet.month)
+            : normalizeLegacyRows(values, undefined, sheet.month)),
+        );
+      } catch (error) {
+        if (!(error instanceof SheetNotFoundError)) throw error;
+      }
+    }
+    const summary = summarizeFinancialRows(rows);
+    logger.info('ledger.all_time_summary.success', {
+      from: 'SheetsRepository.allTimeSummary',
+      to: 'MoneyService',
+      durationMs: elapsedMs(started),
+      entryCount: summary.entryCount,
+      sheetCount: sheets.length,
+      firstTransactionDate: summary.firstTransactionDate,
+      lastTransactionDate: summary.lastTransactionDate,
+    });
+    return summary;
+  }
+
   async monthlySummary(signal: AbortSignal, year: number, month: number): Promise<MonthlySummary> {
     return (await this.monthlyReport(signal, year, month)).summary;
   }
@@ -294,6 +336,21 @@ export class SheetsRepository {
   }
 }
 
+type SupportedTransactionSheet =
+  | { kind: 'flat'; title: string; year: number; month: number }
+  | { kind: 'legacy'; title: string; month: number };
+
+function supportedTransactionSheet(title: string): SupportedTransactionSheet | undefined {
+  const flat = /^(\d{4})-(0[1-9]|1[0-2])$/u.exec(title);
+  if (flat) {
+    return { kind: 'flat', title, year: Number(flat[1]), month: Number(flat[2]) };
+  }
+  if (/^(?:[1-9]|1[0-2])$/u.test(title)) {
+    return { kind: 'legacy', title, month: Number(title) };
+  }
+  return undefined;
+}
+
 function transactionContent(transaction: Transaction): string {
   const category = transaction.category.trim().split(/\s+/u).filter(Boolean).join(' ');
   const original = (transaction.originalMessage ?? '').trim().split(/\s+/u).filter(Boolean).join(
@@ -333,7 +390,11 @@ function normalizeFlatRows(rows: string[][], year: number, month: number): Ledge
   return normalized;
 }
 
-function normalizeLegacyRows(rows: string[][], year: number, month: number): LedgerReportRow[] {
+function normalizeLegacyRows(
+  rows: string[][],
+  year: number | undefined,
+  month: number,
+): LedgerReportRow[] {
   const normalized: LedgerReportRow[] = [];
   let activeDate: string | undefined;
   for (const row of rows) {
@@ -384,12 +445,15 @@ function dateSortValue(value: string): number {
   return match ? Number(`${match[3]}${match[2]}${match[1]}`) : Number.MAX_SAFE_INTEGER;
 }
 
-function validDate(value: string, year: number, month: number): boolean {
+function validDate(value: string, year: number | undefined, month: number): boolean {
   const match = /^(\d{2})\/(\d{2})\/(\d{4})$/u.exec(value.trim());
-  if (!match || Number(match[2]) !== month || Number(match[3]) !== year) return false;
+  if (!match || Number(match[2]) !== month || (year !== undefined && Number(match[3]) !== year)) {
+    return false;
+  }
+  const dateYear = Number(match[3]);
   const day = Number(match[1]);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 &&
+  const date = new Date(Date.UTC(dateYear, month - 1, day));
+  return date.getUTCFullYear() === dateYear && date.getUTCMonth() === month - 1 &&
     date.getUTCDate() === day;
 }
 

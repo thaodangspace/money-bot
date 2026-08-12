@@ -1,6 +1,7 @@
 import type { ImageTransactionExtraction } from '../adapters/ai/image_types.ts';
 import { MoneyService } from './money_service.ts';
 import type { AIParser, AppendBatchResult, Ledger } from './types.ts';
+import type { FinancialSummary } from '../domain/financial_summary.ts';
 import type { MonthlyLedgerReport } from '../domain/report.ts';
 import type { MonthlySummary } from '../domain/summary.ts';
 import type { Transaction } from '../domain/transaction.ts';
@@ -42,6 +43,16 @@ class BatchLedger implements Ledger {
   }
   monthlyReport(): Promise<MonthlyLedgerReport> {
     return this.monthlySummary().then((summary) => ({ summary, rows: [] }));
+  }
+  allTimeSummary(): Promise<FinancialSummary> {
+    return Promise.resolve({
+      totalIncome: 0,
+      totalExpenses: 0,
+      totalInvest: 0,
+      totalSaving: 0,
+      cashAvailable: 0,
+      entryCount: 0,
+    });
   }
   monthlySummary(): Promise<MonthlySummary> {
     return Promise.resolve({
