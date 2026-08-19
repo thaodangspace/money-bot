@@ -103,7 +103,7 @@ Deno.test('report command sends summary and one Markdown document', async () => 
   const handler = new TelegramHandler({
     messenger,
     service,
-    authorizer: new TelegramAuthorizer(42),
+    authorizer: new TelegramAuthorizer([42]),
   });
   await handler.handleUpdate(new AbortController().signal, update('/report'));
   if (
@@ -122,7 +122,7 @@ Deno.test('report callback sends summary and one Markdown document', async () =>
   const handler = new TelegramHandler({
     messenger,
     service,
-    authorizer: new TelegramAuthorizer(42),
+    authorizer: new TelegramAuthorizer([42]),
   });
   await handler.handleUpdate(new AbortController().signal, callbackUpdate('cmd:report'));
   if (service.reportCalls !== 1 || messenger.documents.length !== 1) {
@@ -137,7 +137,7 @@ Deno.test('natural-language report intent sends the report attachment', async ()
   const handler = new TelegramHandler({
     messenger,
     service,
-    authorizer: new TelegramAuthorizer(42),
+    authorizer: new TelegramAuthorizer([42]),
   });
   await handler.handleUpdate(new AbortController().signal, update('chi tiêu tháng này'));
   if (
@@ -155,7 +155,7 @@ Deno.test('document delivery failure keeps the summary and sends a concise fallb
   const handler = new TelegramHandler({
     messenger,
     service,
-    authorizer: new TelegramAuthorizer(42),
+    authorizer: new TelegramAuthorizer([42]),
   });
   await handler.handleUpdate(new AbortController().signal, update('/report'));
   if (
@@ -170,7 +170,7 @@ Deno.test('invest and saving commands route typed records with update IDs', asyn
   const handler = new TelegramHandler({
     messenger,
     service,
-    authorizer: new TelegramAuthorizer(42),
+    authorizer: new TelegramAuthorizer([42]),
   });
   await handler.handleUpdate(
     new AbortController().signal,
@@ -195,7 +195,7 @@ Deno.test('typed commands without arguments show usage without recording', async
   const handler = new TelegramHandler({
     messenger,
     service,
-    authorizer: new TelegramAuthorizer(42),
+    authorizer: new TelegramAuthorizer([42]),
   });
   await handler.handleUpdate(new AbortController().signal, update('/invest'));
   await handler.handleUpdate(new AbortController().signal, update('/saving@money_bot'));
@@ -211,7 +211,7 @@ Deno.test('summary command sends all-time summary without a document', async () 
   const handler = new TelegramHandler({
     messenger,
     service,
-    authorizer: new TelegramAuthorizer(42),
+    authorizer: new TelegramAuthorizer([42]),
   });
   await handler.handleUpdate(new AbortController().signal, update('/summary'));
   if (

@@ -1,7 +1,7 @@
 telegram:
   token: "123456:test-token"
   tokenEnv: ""
-  allowedUserId: 123456789
+  allowedUserIds: "123456789"
   maxImageBytes: 5242880
 
 google:

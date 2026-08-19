@@ -19,7 +19,7 @@ Deno.test('config normalization resolves defaults, env values, and durations', (
     telegram: {
       token: '',
       tokenEnv: 'TELEGRAM_BOT_TOKEN',
-      allowedUserId: 123,
+      allowedUserIds: '123',
       maxImageBytes: 5_242_880,
     },
     google: {
@@ -74,7 +74,7 @@ Deno.test('config defaults structured output to JSON schema and honors explicit 
     },
   };
   const base = {
-    telegram: { token: 't', tokenEnv: 'TELEGRAM_BOT_TOKEN', allowedUserId: 1 },
+    telegram: { token: 't', tokenEnv: 'TELEGRAM_BOT_TOKEN', allowedUserIds: '1' },
     google: { spreadsheetId: 'sheet', credentialsJSONEnv: 'GOOGLE_CREDENTIALS_JSON' },
     app: {},
   };
@@ -93,7 +93,7 @@ Deno.test('config defaults structured output to JSON schema and honors explicit 
 
 Deno.test('config rejects unknown fields and multiple credential sources', () => {
   const raw = {
-    telegram: { token: 'token', allowedUserId: 1 },
+    telegram: { token: 'token', allowedUserIds: '1' },
     google: {
       spreadsheetId: 'sheet',
       credentialsFile: 'key.json',

@@ -1,11 +1,11 @@
 export class TelegramAuthorizer {
-  readonly #allowedUserId: number;
+  readonly #allowedUserIds: ReadonlySet<number>;
 
-  constructor(allowedUserId: number) {
-    this.#allowedUserId = allowedUserId;
+  constructor(allowedUserIds: readonly number[]) {
+    this.#allowedUserIds = new Set(allowedUserIds);
   }
 
   isAllowedPrivateChat(userId: number, chatId: number): boolean {
-    return this.#allowedUserId > 0 && userId === this.#allowedUserId && chatId === userId;
+    return this.#allowedUserIds.size > 0 && this.#allowedUserIds.has(userId) && chatId === userId;
   }
 }

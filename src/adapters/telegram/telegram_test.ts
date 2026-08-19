@@ -5,11 +5,22 @@ import { detectImageMime, TelegramImageFetcher } from './image_fetcher.ts';
 import { renderReportMarkdown } from './report_markdown.ts';
 
 Deno.test('Telegram authorization requires the allowed private user and chat', () => {
-  const authorizer = new TelegramAuthorizer(42);
+  const authorizer = new TelegramAuthorizer([42]);
   if (
     !authorizer.isAllowedPrivateChat(42, 42) || authorizer.isAllowedPrivateChat(42, -42) ||
     authorizer.isAllowedPrivateChat(7, 42)
   ) throw new Error('authorization mismatch');
+});
+
+Deno.test('Telegram authorization supports multiple allowed users', () => {
+  const authorizer = new TelegramAuthorizer([42, 99, 777]);
+  if (
+    !authorizer.isAllowedPrivateChat(42, 42) ||
+    !authorizer.isAllowedPrivateChat(99, 99) ||
+    !authorizer.isAllowedPrivateChat(777, 777) ||
+    authorizer.isAllowedPrivateChat(1, 1) ||
+    authorizer.isAllowedPrivateChat(42, 99)
+  ) throw new Error('multi-user authorization mismatch');
 });
 
 Deno.test('Telegram Markdown escaping and rune chunking are safe', () => {

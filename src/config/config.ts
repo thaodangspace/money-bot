@@ -43,7 +43,7 @@ export interface AppConfig {
 export interface RuntimeConfig {
   telegram: {
     token: string;
-    allowedUserId: number;
+    allowedUserIds: number[];
     maxImageBytes: number;
     webhookPath: string;
     webhookSecret: string;
@@ -98,7 +98,7 @@ export function configFromEnvironment(environment: Environment = systemEnvironme
     telegram: {
       token: '',
       tokenEnv: 'TELEGRAM_BOT_TOKEN',
-      allowedUserId: environment.get('TELEGRAM_ALLOWED_USER_ID') ?? '',
+      allowedUserIds: environment.get('TELEGRAM_ALLOWED_USER_IDS')?.trim() ?? '',
       maxImageBytes: environment.get('TELEGRAM_MAX_IMAGE_BYTES') ?? '',
       webhookPath: environment.get('TELEGRAM_WEBHOOK_PATH') ?? '',
       webhookSecretEnv: 'TELEGRAM_WEBHOOK_SECRET',
@@ -153,7 +153,7 @@ export function normalizeConfig(
   assertKeys(telegram, [
     'token',
     'tokenEnv',
-    'allowedUserId',
+    'allowedUserIds',
     'maxImageBytes',
     'webhookPath',
     'webhookSecretEnv',
@@ -217,7 +217,7 @@ export function normalizeConfig(
   const result: RuntimeConfig = {
     telegram: {
       token,
-      allowedUserId: integerValue(telegram.allowedUserId, 0),
+      allowedUserIds: parseAllowedUserIds(telegram.allowedUserIds),
       maxImageBytes: numberValue(telegram.maxImageBytes, DEFAULTS.maxImageBytes),
       webhookPath,
       webhookSecret,
@@ -295,7 +295,7 @@ function resolveCredentialSource(
 function validateConfig(config: RuntimeConfig): void {
   const errors: string[] = [];
   if (!config.telegram.token) errors.push('telegram token is required');
-  if (config.telegram.allowedUserId <= 0) errors.push('telegram.allowedUserId must be positive');
+  if (config.telegram.allowedUserIds.length === 0) errors.push('telegram.allowedUserIds must not be empty');
   if (!config.telegram.maxImageBytes || config.telegram.maxImageBytes <= 0) {
     errors.push('telegram.maxImageBytes must be positive');
   }
@@ -383,6 +383,16 @@ function numberValue(value: unknown, fallback: number): number {
 function integerValue(value: unknown, fallback: number): number {
   const result = numberValue(value, fallback);
   return Number.isInteger(result) ? result : 0;
+}
+
+function parseAllowedUserIds(raw: unknown): number[] {
+  const text = stringValue(raw);
+  if (!text) return [];
+  return text.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => Number(s))
+    .filter((n) => Number.isInteger(n) && n > 0);
 }
 
 function expandPath(value: string, configPath: string): string {

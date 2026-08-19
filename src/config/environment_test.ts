@@ -3,7 +3,7 @@ import { configFromEnvironment } from './config.ts';
 Deno.test('environment-only configuration works without config.yaml', () => {
   const values: Record<string, string> = {
     TELEGRAM_BOT_TOKEN: '123:test-token',
-    TELEGRAM_ALLOWED_USER_ID: '123456789',
+    TELEGRAM_ALLOWED_USER_IDS: '123456789',
     TELEGRAM_WEBHOOK_SECRET: 'webhook-secret',
     GOOGLE_SHEET_ID: 'spreadsheet-id',
     GOOGLE_SERVICE_ACCOUNT_EMAIL: 'bot@example.iam.gserviceaccount.com',
@@ -16,7 +16,7 @@ Deno.test('environment-only configuration works without config.yaml', () => {
   };
   const config = configFromEnvironment({ get: (name) => values[name] });
   if (
-    config.telegram.allowedUserId !== 123456789 || config.google.spreadsheetId !== 'spreadsheet-id'
+    config.telegram.allowedUserIds.join(',') !== '123456789' || config.google.spreadsheetId !== 'spreadsheet-id'
   ) throw new Error('Telegram/Sheets env configuration failed');
   if (
     config.ai.provider !== 'openrouter' || config.ai.model !== 'text-model' ||

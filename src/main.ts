@@ -97,7 +97,7 @@ export async function main(args: string[] = Deno.args): Promise<void> {
   const handler = new TelegramHandler({
     messenger: telegram,
     service,
-    authorizer: new TelegramAuthorizer(config.telegram.allowedUserId),
+    authorizer: new TelegramAuthorizer(config.telegram.allowedUserIds),
     imageFetcher: new TelegramImageFetcher(telegram, config.telegram.maxImageBytes, fetch, logger),
     maxOutputRunes: config.app.maxOutputRunes,
     logger,
