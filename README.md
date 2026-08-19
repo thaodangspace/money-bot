@@ -112,7 +112,7 @@ No automatic migration, cleanup, or de-duplication of historical rows is perform
 
 ## Security and operations
 
-- Only `telegram.allowedUserId` in the matching private chat is accepted.
+- Only `telegram.allowedUserIds` in the matching private chat is accepted.
 - Unauthorized updates do not call parser, AI, or Google APIs.
 - Do not commit `config.yaml`, `.env`, or credential JSON files.
 - Run one money-bot instance per spreadsheet. Multiple writers can race Google Sheets' read-before-write idempotency check.

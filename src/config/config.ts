@@ -388,11 +388,19 @@ function integerValue(value: unknown, fallback: number): number {
 function parseAllowedUserIds(raw: unknown): number[] {
   const text = stringValue(raw);
   if (!text) return [];
-  return text.split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((s) => Number(s))
-    .filter((n) => Number.isInteger(n) && n > 0);
+  const tokens = text.split(',').map((s) => s.trim());
+  if (tokens.length === 0) return [];
+  if (tokens.some((s) => s === '')) {
+    throw new Error('telegram.allowedUserIds contains empty token');
+  }
+  const ids = tokens.map((s) => {
+    const n = Number(s);
+    if (!Number.isInteger(n) || n <= 0 || !/^\d+$/u.test(s)) {
+      throw new Error(`telegram.allowedUserIds contains invalid token: ${s}`);
+    }
+    return n;
+  });
+  return ids;
 }
 
 function expandPath(value: string, configPath: string): string {
