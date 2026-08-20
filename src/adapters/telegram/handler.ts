@@ -111,12 +111,14 @@ export class TelegramHandler {
         updateId,
         ...errorFields(error),
       });
+      // The user has received a terminal, actionable response. Do not rethrow: a
+      // non-2xx webhook response makes Telegram redeliver this same image.
       await this.#sendChunks(
         signal,
         message.chatId,
         '❌ Không thể đọc ảnh. Vui lòng gửi JPEG, PNG hoặc WebP rõ nét, tối đa 5 MiB.',
       );
-      throw error;
+      return;
     }
     try {
       const prepared = await this.#service.prepareImage(signal, updateId, {
@@ -132,12 +134,14 @@ export class TelegramHandler {
         updateId,
         ...errorFields(error),
       });
+      // The extraction failure is not transient webhook work. Acknowledge the
+      // update after sending the fallback so Telegram does not create a reply loop.
       await this.#sendChunks(
         signal,
         message.chatId,
         '❌ Mình chưa đọc được giao dịch rõ ràng từ ảnh. Vui lòng gửi ảnh đầy đủ, rõ nét hoặc thêm chú thích.',
       );
-      throw error;
+      return;
     }
   }
 

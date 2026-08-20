@@ -1,6 +1,12 @@
 import { TelegramAuthorizer } from './authz.ts';
 import { TelegramHandler } from './handler.ts';
-import type { DocumentAttachment, InlineKeyboard, Messenger, MoneyServicePort } from './types.ts';
+import type {
+  DocumentAttachment,
+  ImageFetcher,
+  InlineKeyboard,
+  Messenger,
+  MoneyServicePort,
+} from './types.ts';
 import type { RecordOptions, ReportResponse, ServiceResult } from '../../service/types.ts';
 
 class FakeMessenger implements Messenger {
@@ -32,6 +38,7 @@ class FakeService implements MoneyServicePort {
   reportQueries: string[] = [];
   recordCalls: Array<{ updateId: number; text: string; options?: RecordOptions }> = [];
   summaryIntent = false;
+  imageError?: Error;
   report(_signal: AbortSignal, query: string): Promise<ReportResponse> {
     this.reportCalls++;
     this.reportQueries.push(query);
@@ -66,8 +73,9 @@ class FakeService implements MoneyServicePort {
     this.recordCalls.push({ updateId, text, options });
     return Promise.resolve({ text: 'record' });
   }
-  prepareImage(): never {
-    throw new Error('unused');
+  prepareImage() {
+    if (this.imageError) return Promise.reject(this.imageError);
+    return Promise.resolve({ text: 'image preview', token: 'opaque-token' });
   }
   confirmImage(): Promise<ServiceResult> {
     return Promise.resolve({ text: 'confirm' });
@@ -96,6 +104,65 @@ function callbackUpdate(data: string) {
     callback: { id: 'callback', chatId: 42, userId: 42, messageId: 1, data },
   } as const;
 }
+
+function imageUpdate() {
+  return {
+    id: 3,
+    message: {
+      chatId: 42,
+      userId: 42,
+      text: '',
+      caption: '',
+      image: { fileId: 'image-file' },
+      isBot: false,
+    },
+  } as const;
+}
+
+class FakeImageFetcher implements ImageFetcher {
+  error?: Error;
+
+  fetchImage() {
+    if (this.error) return Promise.reject(this.error);
+    return Promise.resolve({ mimeType: 'image/png', data: new Uint8Array([1]) });
+  }
+}
+
+Deno.test('image extraction failure is acknowledged after its fallback response', async () => {
+  const messenger = new FakeMessenger();
+  const service = new FakeService();
+  service.imageError = new Error('vision model cannot read image');
+  const handler = new TelegramHandler({
+    messenger,
+    service,
+    authorizer: new TelegramAuthorizer(42),
+    imageFetcher: new FakeImageFetcher(),
+  });
+
+  await handler.handleUpdate(new AbortController().signal, imageUpdate());
+
+  if (messenger.messages.length !== 1 || !messenger.messages[0]?.includes('chưa đọc được')) {
+    throw new Error(JSON.stringify(messenger.messages));
+  }
+});
+
+Deno.test('image download failure is acknowledged after its fallback response', async () => {
+  const messenger = new FakeMessenger();
+  const fetcher = new FakeImageFetcher();
+  fetcher.error = new Error('download failed');
+  const handler = new TelegramHandler({
+    messenger,
+    service: new FakeService(),
+    authorizer: new TelegramAuthorizer(42),
+    imageFetcher: fetcher,
+  });
+
+  await handler.handleUpdate(new AbortController().signal, imageUpdate());
+
+  if (messenger.messages.length !== 1 || !messenger.messages[0]?.includes('Không thể đọc ảnh')) {
+    throw new Error(JSON.stringify(messenger.messages));
+  }
+});
 
 Deno.test('report command sends summary and one Markdown document', async () => {
   const messenger = new FakeMessenger();
